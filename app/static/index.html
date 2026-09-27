@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0f14">
+<meta name="color-scheme" content="dark">
+<title>DeadAir TV</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<header>
+  <button id="back" class="icon-btn" hidden aria-label="Back to channels">←</button>
+  <h1>DeadAir&nbsp;TV</h1>
+</header>
+
+<main>
+  <section id="channels-view">
+    <div id="channels" class="channel-grid" aria-live="polite"></div>
+    <p id="notice" class="notice" hidden></p>
+  </section>
+
+  <section id="pick-view" hidden>
+    <article id="card" class="card" aria-live="polite">
+      <div class="still-wrap"><img id="still" alt=""></div>
+      <div class="card-body">
+        <p class="channel-label" id="p-channel"></p>
+        <h2 id="p-show"></h2>
+        <p class="ep-line"><span id="p-code" class="code"></span> <span id="p-title"></span></p>
+        <p id="p-flag" class="flag" hidden></p>
+        <p id="p-overview" class="overview"></p>
+      </div>
+    </article>
+    <div class="actions">
+      <a id="open" class="btn primary" target="_blank" rel="noopener">Open</a>
+      <div class="row">
+        <button id="play" class="btn" hidden>Play on TV</button>
+        <button id="reroll" class="btn">Reroll</button>
+      </div>
+    </div>
+    <p id="play-status" class="notice" hidden></p>
+  </section>
+</main>
+
+<footer>
+  <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" class="tmdb-logo">TMDB</a>
+  <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+  <p>Streaming availability data provided by
+    <a href="https://www.justwatch.com/" target="_blank" rel="noopener">JustWatch</a>.</p>
+</footer>
+
+<script src="static/app.js"></script>
+</body>
+</html>

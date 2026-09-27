@@ -1,0 +1,6 @@
+.git
+data
+tests
+**/__pycache__
+.env
+channels.yaml
