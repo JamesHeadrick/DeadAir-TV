@@ -14,7 +14,7 @@ COPY app ./app
 # HOME=/data keeps adb's RSA key (~/.android) in the persistent volume, so the
 # TV only asks you to authorize the connection once.
 RUN useradd --uid 1000 --home-dir /data --no-create-home app \
-    && mkdir -p /data /config && chown app:app /data
+    && mkdir -p /data /config && chown app:app /data /config
 USER app
 ENV HOME=/data \
     PYTHONUNBUFFERED=1 \

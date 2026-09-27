@@ -26,9 +26,10 @@ function showNotice(node, msg, isError = false) {
 }
 
 function showView(name) {
-  for (const v of ["channels", "pick", "shows"]) $(`${v}-view`).hidden = v !== name;
+  for (const v of ["channels", "pick", "shows", "settings"]) $(`${v}-view`).hidden = v !== name;
   $("back").hidden = name === "channels";
-  $("shows-btn").hidden = name === "shows";
+  $("shows-btn").hidden = name === "shows" || name === "settings";
+  $("settings-btn").hidden = name === "settings";
 }
 
 // --- channels ---------------------------------------------------------------
@@ -38,7 +39,14 @@ async function loadChannels() {
     const data = await api("api/channels");
     adbEnabled = data.adb_enabled;
     $("channels").replaceChildren(...data.channels.map(channelButton));
-    showNotice($("notice"), data.sync_error ? `Sync issue: ${data.sync_error}` : "", true);
+    if (!data.channels.length) {
+      $("channels").replaceChildren(el("p", { className: "notice", textContent: "No channels yet. Add some shows in Settings (⚙)." }));
+    }
+    const problems = [
+      data.config_error && `config.yaml has an error, using the last good version: ${data.config_error}`,
+      data.sync_error && `Sync issue: ${data.sync_error}`,
+    ].filter(Boolean);
+    showNotice($("notice"), problems.join(" · "), true);
   } catch (e) {
     showNotice($("notice"), `Couldn't load channels: ${e.message}`, true);
   }
@@ -187,6 +195,7 @@ $("reroll").addEventListener("click", () => currentChannel && pick(currentChanne
 $("play").addEventListener("click", playOnTv);
 $("shows-btn").addEventListener("click", loadShows);
 $("back").addEventListener("click", () => {
+  if (!settingsCanLeave()) return;
   showView("channels");
   loadChannels();
 });

@@ -6,7 +6,8 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./config.yaml:/config/config.yaml:ro
+      # A directory (not a single file) so the Settings page can save atomically.
+      - ./config:/config
       - ./data:/data
     # Expose only if you're not putting it on the same Docker network as
     # Nginx Proxy Manager (in that case, proxy to http://deadair-tv:8000).

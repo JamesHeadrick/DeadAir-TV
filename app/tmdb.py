@@ -82,6 +82,35 @@ class TMDBClient:
         }
         return show, episodes
 
+    async def search_tv(self, query: str) -> list[dict]:
+        data = await self._get("/search/tv", query=query, include_adult="false")
+        return [
+            {
+                "tmdb_id": r["id"],
+                "title": r.get("name") or r.get("original_name") or str(r["id"]),
+                "year": (r.get("first_air_date") or "")[:4] or None,
+                "overview": r.get("overview") or "",
+                "poster_url": image_url(r.get("poster_path"), "w185"),
+            }
+            for r in data.get("results", [])
+        ]
+
+    async def list_tv_providers(self, region: str) -> list[dict]:
+        """Every streaming provider TMDB knows about in a region, most popular first."""
+        data = await self._get("/watch/providers/tv", watch_region=region)
+        results = sorted(
+            data.get("results", []),
+            key=lambda p: (p.get("display_priorities") or {}).get(region, p.get("display_priority", 999)),
+        )
+        return [
+            {
+                "provider_id": p.get("provider_id"),
+                "provider_name": p.get("provider_name", ""),
+                "logo_url": image_url(p.get("logo_path"), "w92"),
+            }
+            for p in results
+        ]
+
     async def fetch_providers(self, tmdb_id: int, region: str) -> dict:
         """Watch providers for one region, grouped by type.
 

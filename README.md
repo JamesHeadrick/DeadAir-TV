@@ -24,13 +24,15 @@ episode, then shows where *you* can watch it. **Reroll** picks again.
 ```sh
 git clone https://github.com/JamesHeadrick/DeadAir-TV.git && cd DeadAir-TV
 cp .env.example .env                        # set TMDB_API_KEY
-cp config.example.yaml config.yaml          # your services + shows
-mkdir -p data && sudo chown 1000:1000 data  # container runs as uid 1000
+mkdir -p config data
+cp config.example.yaml config/config.yaml   # optional: or start empty and use Settings
+sudo chown -R 1000:1000 config data         # container runs as uid 1000
 docker compose up -d --build
 ```
 
-Then open `http://<pi-ip>:8000`. The first TMDB sync starts right away and
-takes a few seconds per show.
+Then open `http://<pi-ip>:8000` and tap **⚙** to pick your services and add
+shows. Each new show's episodes are fetched right away, which takes a few
+seconds per show.
 
 The image is built from `python:3.12-slim-bookworm`, which is multi-arch, so
 building it on the Pi gives you an arm64 image with no extra steps.
@@ -44,7 +46,29 @@ Put an Access List on it if the proxy is reachable from outside your LAN/VPN.
 
 ## Configuration
 
+### Settings page (⚙)
+
+Everything in `config.yaml` can be edited from the web UI:
+
+- **Your services**: search TMDB's provider list for your region and tap to
+  add, so the names always match what TMDB reports. The order they're listed
+  in is the order watch options are shown in.
+- **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
+- **Shows**: search TMDB by name to add a show. For each show you can edit its
+  channel tags (pick an existing channel or type a new one), its weight, a
+  display name, and its deep links.
+- **Search links**: add or override a service's search URL.
+
+Saving rewrites `config/config.yaml` and keeps the previous version as
+`config.yaml.bak`. Comments in the file don't survive a save from the UI. If
+the file changed on disk since you opened Settings, the save is refused, so
+you don't overwrite someone else's changes.
+
 ### `config.yaml`
+
+The UI writes this file, but hand edits are fine too. They're picked up
+automatically without a restart. If a hand edit breaks the YAML, the app
+keeps using the last good version and shows the error.
 
 ```yaml
 services: [Netflix, Hulu, Disney Plus]   # what you subscribe to
@@ -79,8 +103,8 @@ shows:
   with 200 episodes therefore comes up 10× as often as one with 20.
 - **weight** (default `1`) multiplies the odds of each of that show's episodes.
 
-After editing `config.yaml`, run `curl -X POST http://<host>:8000/api/refresh`
-to reload it and force a full re-sync. Restarting the container also works.
+To force a full TMDB re-sync (e.g. after a show adds a new season), run
+`curl -X POST http://<host>:8000/api/refresh`.
 
 ### Environment (`.env`)
 
@@ -110,12 +134,18 @@ watch option's link. The server builds the URL itself; the browser never
 supplies it. Exact `links:` deep links work best, because many TV apps ignore
 search URLs.
 
+## Roadmap
+
+- **v2: logins.** There's no auth today: anyone who can reach the app can
+  change its settings. That's fine for LAN/VPN use, but per-user logins (and
+  maybe per-user services and channels) would be the next step.
+
 ## Development
 
 ```sh
 pip install -r requirements-dev.txt
 pytest
-CONFIG_PATH=config.yaml DB_PATH=data/dev.db TMDB_API_KEY=... uvicorn app.main:app --reload
+CONFIG_PATH=config/config.yaml DB_PATH=data/dev.db TMDB_API_KEY=... uvicorn app.main:app --reload
 ```
 
 ## Attribution

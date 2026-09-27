@@ -73,18 +73,7 @@ main {
   gap: 12px;
 }
 @media (min-width: 540px) {
-  .text-btn {
-  margin-left: auto;
-  background: none;
-  border: 0;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-  padding: 10px 4px;
-  cursor: pointer;
-}
-
-.channel-grid { grid-template-columns: 1fr 1fr; }
+  .channel-grid { grid-template-columns: 1fr 1fr; }
 }
 
 .channel-btn {
@@ -229,6 +218,97 @@ main {
 }
 .chip.good { background: #103a35; color: var(--accent); }
 .chip.meh { background: var(--warn-bg); color: var(--warn-text); }
+
+.panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.panel h2 { margin: 0 0 4px; font-size: 1.1rem; display: inline; }
+.panel summary { cursor: pointer; }
+.hint { color: var(--muted); font-size: .85rem; margin: 6px 0 10px; }
+.hint code { background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.field {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--surface-2);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.field:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.field.invalid { border-color: var(--warn-text); }
+.btn.small { min-height: 40px; padding: 0 14px; font-size: .95rem; border-radius: 10px; }
+.chips.big { margin: 0 0 10px; gap: 6px; }
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  background: #103a35;
+  color: var(--accent);
+  font: inherit;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.chip-btn.plain { padding-left: 10px; background: var(--surface-2); color: var(--text); }
+.chip-btn img { width: 24px; height: 24px; border-radius: 50%; }
+.pick-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 320px; overflow-y: auto; }
+.pick-list:empty { display: none; }
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pick-row img, .pick-row .ph { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex: none; background: var(--bg); }
+.pick-row.result img, .pick-row.result .ph { width: 36px; height: 54px; }
+.pick-row .grow { flex: 1; min-width: 0; }
+.pick-row small { color: var(--muted); display: block; }
+.pick-row .tag { color: var(--accent); font-weight: 600; font-size: .85rem; }
+.pick-row:disabled { cursor: default; opacity: .6; }
+.toggle { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin-top: 2px; }
+.settings-show { flex-direction: column; }
+.settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
+.settings-show .head .poster { width: 40px; }
+.settings-show .head .grow { flex: 1; min-width: 0; }
+.settings-show .head .tag { color: var(--muted); padding: 0 6px; }
+.settings-show .editor { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
+.settings-show .editor label { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+.settings-show .row2 { display: flex; gap: 8px; }
+.settings-show .row2 > * { flex: 1; min-width: 0; }
+.kv-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.kv-row .field:first-child { flex: 0 0 38%; }
+.kv-row .x { flex: none; width: 44px; }
+.warn-text { color: var(--warn-text); font-size: .85rem; }
+.btn.danger { background: var(--warn-bg); color: var(--warn-text); }
+.save-bar {
+  position: sticky;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+.save-bar span { flex: 1; font-size: .9rem; }
 
 .notice { color: var(--muted); text-align: center; }
 .notice.error { color: var(--warn-text); }

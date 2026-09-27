@@ -9,7 +9,9 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.access import compute_access, names_match
-from app.config import AppConfig, ConfigError, Settings, ShowConfig, parse_config
+from app.config import (
+    AppConfig, ConfigError, Settings, ShowConfig, dump_config, load_config, parse_config, save_config,
+)
 from app.db import Database
 from app.picker import pick_episode
 from app.sync import Syncer
@@ -50,9 +52,10 @@ def test_parse_config_tags_become_channels():
 
 
 @pytest.mark.parametrize("bad", [
-    {},
-    {"shows": []},
+    [],
+    {"shows": "nope"},
     {"shows": [{"tmdb_id": 1}]},
+    {"shows": [{"tmdb_id": 1, "channels": ["  "]}]},
     {"shows": [{"tmdb_id": 1, "channels": ["a"], "weight": 0}]},
     {"shows": [{"tmdb_id": 1, "channels": ["a"]}, {"tmdb_id": 1, "channels": ["b"]}]},
     {"services": "Netflix", "shows": [{"tmdb_id": 1, "channels": ["a"]}]},
@@ -60,6 +63,37 @@ def test_parse_config_tags_become_channels():
 def test_parse_config_rejects_bad_config(bad):
     with pytest.raises(ConfigError):
         parse_config(bad)
+
+
+def test_empty_config_is_valid():
+    assert parse_config(None).shows == []
+    assert parse_config({}).channels == {}
+
+
+def test_dump_config_round_trips(tmp_path):
+    cfg = parse_config({
+        "services": ["Netflix", " Hulu ", "Netflix"],
+        "include_free": False,
+        "search_urls": {"Foo": "https://foo/?q={q}"},
+        "shows": [
+            {"tmdb_id": 1, "title": "Seinfeld", "channels": ["sitcom", " short "]},
+            {"tmdb_id": 2, "channels": ["scifi"], "weight": 2.5, "name": "X", "links": {"Hulu": "https://h"}},
+        ],
+    })
+    assert cfg.services == ["Netflix", "Hulu"]
+    text = dump_config(cfg)
+    assert text.startswith("# DeadAir TV config")
+    assert "weight" not in text.split("tmdb_id: 2")[0]  # default weight not written
+    path = tmp_path / "config.yaml"
+    save_config(path, text)
+    again = load_config(path)
+    assert dump_config(again) == text
+    assert again.find_show(1).channels == ("sitcom", "short")
+    assert again.find_show(2).links == {"Hulu": "https://h"}
+
+    save_config(path, "shows: []\n")
+    assert (tmp_path / "config.yaml.bak").read_text() == text
+    assert load_config(tmp_path / "missing.yaml").shows == []
 
 
 # --- where to watch ----------------------------------------------------------
@@ -288,3 +322,76 @@ def test_api_play_uses_server_side_url(client, monkeypatch):
 
     assert client.post("/api/play", json={"tmdb_id": 2}).status_code == 404  # nowhere to watch
     assert client.post("/api/play", json={"tmdb_id": 3}).status_code == 404  # unknown show
+
+
+def test_api_config_get_put_and_conflict(client):
+    cfg = client.get("/api/config").json()
+    assert cfg["services"] == ["Netflix"]
+    assert cfg["shows"][0]["title"] == "Show 1"  # name from the TMDB cache
+    assert cfg["shows"][0]["links"] == {"Netflix": "https://netflix.example/1?a=1&b=2"}
+
+    body = {
+        "version": cfg["version"],
+        "services": ["Hulu", "Netflix"],
+        "include_free": True,
+        "include_rent_buy": False,
+        "shows": [
+            {"tmdb_id": 1, "channels": ["sitcom"], "title": "Show 1"},
+            {"tmdb_id": 2, "channels": ["scifi", "short"], "weight": 2},
+            {"tmdb_id": 3, "channels": ["scifi"], "title": "Brand New"},
+        ],
+    }
+    r = client.put("/api/config", json=body)
+    assert r.status_code == 200, r.text
+    new_version = r.json()["version"]
+
+    # Written to disk and live immediately.
+    on_disk = load_config(main.state.settings.config_path)
+    assert on_disk.services == ["Hulu", "Netflix"] and not on_disk.include_rent_buy
+    channels = client.get("/api/channels").json()["channels"]
+    assert [c["name"] for c in channels] == ["sitcom", "scifi", "short"]
+    assert channels[1]["shows"] == ["Show 2", "Brand New"]  # uncached show falls back to title
+    assert client.get("/api/config").json()["version"] == new_version
+
+    # Stale version -> 409; invalid config -> 400, file untouched.
+    assert client.put("/api/config", json=body).status_code == 409
+    body["version"] = new_version
+    body["shows"][0]["channels"] = []
+    assert client.put("/api/config", json=body).status_code == 400
+    assert load_config(main.state.settings.config_path).find_show(3) is not None
+
+
+def test_hand_edits_are_picked_up_and_bad_edits_reported(client):
+    path = main.state.settings.config_path
+    path.write_text("services: [Hulu]\nshows:\n  - tmdb_id: 2\n    channels: [late night]\n")
+    data = client.get("/api/channels").json()
+    assert [c["name"] for c in data["channels"]] == ["late night"]
+    assert data["channels"][0]["unwatchable"] == []  # Show 2 is on Hulu
+
+    path.write_text("shows: [oops")
+    data = client.get("/api/channels").json()
+    assert [c["name"] for c in data["channels"]] == ["late night"]  # last good config kept
+    assert data["config_error"]
+
+
+def test_api_tmdb_search_and_providers(client):
+    def handler(request: httpx.Request):
+        if request.url.path == "/3/search/tv":
+            assert request.url.params["query"] == "seinfeld"
+            return httpx.Response(200, json={"results": [
+                {"id": 1400, "name": "Seinfeld", "first_air_date": "1989-07-05", "poster_path": "/p.jpg"},
+            ]})
+        if request.url.path == "/3/watch/providers/tv":
+            return httpx.Response(200, json={"results": [
+                {"provider_id": 15, "provider_name": "Hulu", "display_priorities": {"US": 5}},
+                {"provider_id": 8, "provider_name": "Netflix", "display_priorities": {"US": 1}},
+            ]})
+        return httpx.Response(404)
+
+    assert client.get("/api/tmdb/search", params={"q": "x"}).status_code == 503
+    main.state.tmdb = TMDBClient("k", transport=httpx.MockTransport(handler))
+    res = client.get("/api/tmdb/search", params={"q": " seinfeld "}).json()["results"]
+    assert res == [{"tmdb_id": 1400, "title": "Seinfeld", "year": "1989", "overview": "",
+                    "poster_url": "https://image.tmdb.org/t/p/w185/p.jpg"}]
+    names = [p["provider_name"] for p in client.get("/api/tmdb/providers").json()["providers"]]
+    assert names == ["Netflix", "Hulu"]

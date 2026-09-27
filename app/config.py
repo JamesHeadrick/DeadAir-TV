@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -49,6 +51,7 @@ class ShowConfig:
     channels: tuple[str, ...]
     weight: float = 1.0
     name: str | None = None  # optional display-name override
+    title: str | None = None  # TMDB title, informational (keeps the YAML readable)
     # Optional exact deep links, keyed by service name; beats the search link.
     links: dict[str, str] = field(default_factory=dict, hash=False, compare=False)
 
@@ -87,6 +90,8 @@ def _str_map(value: object, where: str) -> dict[str, str]:
 
 
 def parse_config(data: object) -> AppConfig:
+    if data is None:  # empty file
+        data = {}
     if not isinstance(data, dict):
         raise ConfigError("config must be a mapping with 'services:' and 'shows:'")
 
@@ -94,9 +99,9 @@ def parse_config(data: object) -> AppConfig:
     if not isinstance(services, list):
         raise ConfigError("'services' must be a list of service names")
 
-    raw_shows = data.get("shows")
-    if not isinstance(raw_shows, list) or not raw_shows:
-        raise ConfigError("'shows' must be a non-empty list")
+    raw_shows = data.get("shows") or []
+    if not isinstance(raw_shows, list):
+        raise ConfigError("'shows' must be a list")
 
     shows: list[ShowConfig] = []
     seen: set[int] = set()
@@ -118,6 +123,8 @@ def parse_config(data: object) -> AppConfig:
         channels = show.get("channels")
         if isinstance(channels, str):
             channels = [channels]
+        if isinstance(channels, list):
+            channels = [str(c).strip() for c in channels if str(c).strip()]
         if not isinstance(channels, list) or not channels:
             raise ConfigError(f"{where}: needs at least one channel, e.g. channels: [sitcom]")
         shows.append(
@@ -126,12 +133,13 @@ def parse_config(data: object) -> AppConfig:
                 channels=tuple(dict.fromkeys(str(c) for c in channels)),
                 weight=weight,
                 name=str(show["name"]) if show.get("name") else None,
+                title=str(show["title"]) if show.get("title") else None,
                 links=_str_map(show.get("links"), f"{where} links"),
             )
         )
 
     return AppConfig(
-        services=[str(s) for s in services],
+        services=list(dict.fromkeys(str(s).strip() for s in services if str(s).strip())),
         include_free=bool(data.get("include_free", True)),
         include_rent_buy=bool(data.get("include_rent_buy", True)),
         search_urls=_str_map(data.get("search_urls"), "search_urls"),
@@ -139,6 +147,66 @@ def parse_config(data: object) -> AppConfig:
     )
 
 
+HEADER = "# DeadAir TV config. Edited by the web UI (Settings); hand edits are fine too.\n"
+
+
+def dump_config(cfg: AppConfig) -> str:
+    shows = []
+    for s in cfg.shows:
+        d: dict = {"tmdb_id": s.tmdb_id}
+        if s.title:
+            d["title"] = s.title
+        d["channels"] = list(s.channels)
+        if s.weight != 1:
+            d["weight"] = s.weight
+        if s.name:
+            d["name"] = s.name
+        if s.links:
+            d["links"] = dict(s.links)
+        shows.append(d)
+    data: dict = {
+        "services": list(cfg.services),
+        "include_free": cfg.include_free,
+        "include_rent_buy": cfg.include_rent_buy,
+    }
+    if cfg.search_urls:
+        data["search_urls"] = dict(cfg.search_urls)
+    data["shows"] = shows
+    return HEADER + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
+
+
+def content_version(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def read_config_text(path: Path) -> str:
+    """The raw file, or "" if it doesn't exist yet (fresh install)."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+
 def load_config(path: Path) -> AppConfig:
-    with open(path, encoding="utf-8") as f:
-        return parse_config(yaml.safe_load(f))
+    return parse_config(yaml.safe_load(read_config_text(path)))
+
+
+def save_config(path: Path, text: str) -> None:
+    """Write atomically, keeping the previous file as <name>.bak."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = read_config_text(path)
+    if old:
+        path.with_name(path.name + ".bak").write_text(old, encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            # A single file bind-mounted into Docker can't be replaced by
+            # rename (EBUSY); fall back to rewriting it in place.
+            path.write_text(text, encoding="utf-8")
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)

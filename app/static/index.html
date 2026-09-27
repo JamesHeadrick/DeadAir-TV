@@ -14,6 +14,7 @@
   <button id="back" class="icon-btn" hidden aria-label="Back to channels">←</button>
   <h1>DeadAir&nbsp;TV</h1>
   <button id="shows-btn" class="text-btn">All shows</button>
+  <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
 </header>
 
 <main>
@@ -47,6 +48,46 @@
     <p id="my-services" class="notice"></p>
     <ul id="show-list" class="show-list"></ul>
   </section>
+
+  <section id="settings-view" hidden>
+    <p id="settings-error" class="notice error" hidden></p>
+
+    <section class="panel">
+      <h2>Your services</h2>
+      <p class="hint">Subscriptions you pay for. When a show is on several, the one listed first is shown first.</p>
+      <div id="my-service-chips" class="chips big"></div>
+      <input id="provider-filter" class="field" type="search" placeholder="Add a service…" autocomplete="off">
+      <div id="provider-list" class="pick-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Where to watch</h2>
+      <p class="hint">Your services always come first. If a show isn't on any of them:</p>
+      <label class="toggle"><input type="checkbox" id="include-free"> Also use free / with-ads services (Tubi, Pluto TV…)</label>
+      <label class="toggle"><input type="checkbox" id="include-rent-buy"> Then fall back to rent / buy</label>
+      <p class="hint">Shows with nowhere left to watch are skipped when picking.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Shows</h2>
+      <input id="show-search" class="field" type="search" placeholder="Search TMDB to add a show…" autocomplete="off">
+      <div id="search-results" class="pick-list"></div>
+      <ul id="settings-shows" class="show-list"></ul>
+    </section>
+
+    <details class="panel">
+      <summary><h2>Search links</h2></summary>
+      <p class="hint">"Open" uses these to search a service for the show. <code>{q}</code> is replaced by the show name. Add entries for services that aren't built in, or override a built-in link.</p>
+      <div id="search-url-rows"></div>
+      <button id="add-search-url" class="btn small">Add search link</button>
+    </details>
+
+    <div id="save-bar" class="save-bar" hidden>
+      <span id="save-status">Unsaved changes</span>
+      <button id="discard" class="btn small">Discard</button>
+      <button id="save" class="btn small primary">Save</button>
+    </div>
+  </section>
 </main>
 
 <footer>
@@ -57,5 +98,6 @@
 </footer>
 
 <script src="static/app.js"></script>
+<script src="static/settings.js"></script>
 </body>
 </html>
