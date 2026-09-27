@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./channels.yaml:/config/channels.yaml:ro
+      - ./config.yaml:/config/config.yaml:ro
       - ./data:/data
     # Expose only if you're not putting it on the same Docker network as
     # Nginx Proxy Manager (in that case, proxy to http://deadair-tv:8000).

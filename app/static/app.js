@@ -13,24 +13,31 @@ async function api(path, opts) {
   return body;
 }
 
-function showNotice(el, msg, isError = false) {
-  el.textContent = msg;
-  el.classList.toggle("error", isError);
-  el.hidden = !msg;
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter((c) => c != null));
+  return node;
+}
+
+function showNotice(node, msg, isError = false) {
+  node.textContent = msg;
+  node.classList.toggle("error", isError);
+  node.hidden = !msg;
 }
 
 function showView(name) {
-  $("channels-view").hidden = name !== "channels";
-  $("pick-view").hidden = name !== "pick";
-  $("back").hidden = name !== "pick";
+  for (const v of ["channels", "pick", "shows"]) $(`${v}-view`).hidden = v !== name;
+  $("back").hidden = name === "channels";
+  $("shows-btn").hidden = name === "shows";
 }
 
+// --- channels ---------------------------------------------------------------
+
 async function loadChannels() {
-  const grid = $("channels");
   try {
     const data = await api("api/channels");
     adbEnabled = data.adb_enabled;
-    grid.replaceChildren(...data.channels.map(channelButton));
+    $("channels").replaceChildren(...data.channels.map(channelButton));
     showNotice($("notice"), data.sync_error ? `Sync issue: ${data.sync_error}` : "", true);
   } catch (e) {
     showNotice($("notice"), `Couldn't load channels: ${e.message}`, true);
@@ -38,27 +45,22 @@ async function loadChannels() {
 }
 
 function channelButton(ch) {
-  const btn = document.createElement("button");
-  btn.className = "channel-btn";
-  const name = document.createElement("span");
-  name.className = "name";
-  name.textContent = ch.name;
-  const meta = document.createElement("span");
-  meta.className = "meta";
-  meta.textContent = ch.shows.map((s) => s.show_name).join(" · ");
-  btn.append(name, meta);
-
-  const gone = ch.shows.filter((s) => s.available === false);
-  if (gone.length) {
-    const warn = document.createElement("span");
-    warn.className = "warn";
-    warn.textContent = `⚠ ${gone.length} moved`;
-    warn.title = gone.map((s) => `${s.show_name} is no longer on ${s.service}`).join("\n");
-    btn.append(warn);
+  const btn = el("button", { className: "channel-btn" },
+    el("span", { className: "name", textContent: ch.name }),
+    el("span", { className: "meta", textContent: ch.shows.join(" · ") }),
+  );
+  if (ch.unwatchable.length) {
+    btn.append(el("span", {
+      className: "warn",
+      textContent: `⚠ ${ch.unwatchable.length} unavailable`,
+      title: `Not on your services, skipped: ${ch.unwatchable.join(", ")}`,
+    }));
   }
   btn.addEventListener("click", () => pick(ch.name));
   return btn;
 }
+
+// --- pick -------------------------------------------------------------------
 
 async function pick(channel) {
   currentChannel = channel;
@@ -69,7 +71,6 @@ async function pick(channel) {
   try {
     render(await api(`api/pick?channel=${encodeURIComponent(channel)}`));
   } catch (e) {
-    current = null;
     render(null, e.message);
   } finally {
     document.body.classList.remove("loading");
@@ -80,14 +81,15 @@ async function pick(channel) {
 function render(ep, error) {
   current = ep;
   $("p-channel").textContent = currentChannel;
+  const still = $("still");
   if (!ep) {
     $("p-show").textContent = "Nothing to show";
     $("p-code").textContent = "";
     $("p-title").textContent = "";
     $("p-overview").textContent = error || "";
-    $("p-flag").hidden = true;
-    $("still").removeAttribute("src");
-    $("open").hidden = true;
+    $("p-tier").textContent = "";
+    $("watch-options").replaceChildren();
+    still.removeAttribute("src");
     $("play").hidden = true;
     return;
   }
@@ -95,7 +97,6 @@ function render(ep, error) {
   $("p-code").textContent = ep.code;
   $("p-title").textContent = ep.title;
   $("p-overview").textContent = ep.overview || "No synopsis available.";
-  const still = $("still");
   if (ep.still_url) {
     still.src = ep.still_url;
     still.alt = `${ep.show_name} ${ep.code}`;
@@ -103,20 +104,24 @@ function render(ep, error) {
     still.removeAttribute("src");
   }
 
-  const flag = $("p-flag");
-  if (ep.available === false) {
-    const now = ep.providers.length ? ` Now on: ${ep.providers.join(", ")}.` : "";
-    flag.textContent = `No longer on ${ep.service}.${now}`;
-    flag.hidden = false;
-  } else {
-    flag.hidden = true;
-  }
+  const access = ep.access;
+  const tier = $("p-tier");
+  tier.className = "tier" + (access.tier === "rent_buy" ? " rent" : "");
+  tier.replaceChildren(el("strong", { textContent: access.checked ? access.tier_label : "Checking where to watch…" }));
 
-  const open = $("open");
-  open.href = ep.show_url;
-  open.textContent = `Open in ${ep.service}`;
-  open.hidden = false;
-  $("play").hidden = !adbEnabled;
+  const opts = access.options.map((o, i) => {
+    const a = el("a", {
+      className: i === 0 ? "btn primary" : "btn secondary-option",
+      href: o.url,
+      target: "_blank",
+      rel: "noopener",
+    });
+    if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
+    a.append(i === 0 ? `Open in ${o.provider_name}` : o.provider_name);
+    return a;
+  });
+  $("watch-options").replaceChildren(...opts);
+  $("play").hidden = !adbEnabled || !access.options.length;
 }
 
 async function playOnTv() {
@@ -128,7 +133,7 @@ async function playOnTv() {
     await api("api/play", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: currentChannel, tmdb_id: current.tmdb_id }),
+      body: JSON.stringify({ tmdb_id: current.tmdb_id }),
     });
     showNotice($("play-status"), "Launched on TV.");
   } catch (e) {
@@ -138,8 +143,49 @@ async function playOnTv() {
   }
 }
 
+// --- all shows --------------------------------------------------------------
+
+async function loadShows() {
+  showView("shows");
+  const list = $("show-list");
+  list.replaceChildren(el("li", { className: "notice", textContent: "Loading…" }));
+  try {
+    const [{ shows }, { services }] = await Promise.all([api("api/shows"), api("api/channels")]);
+    $("my-services").textContent = services.length
+      ? `Your services: ${services.join(", ")}`
+      : "No services listed in config.yaml";
+    list.replaceChildren(...shows.map(showItem));
+  } catch (e) {
+    list.replaceChildren(el("li", { className: "notice error", textContent: e.message }));
+  }
+}
+
+function showItem(s) {
+  const a = s.access;
+  const chips = el("div", { className: "chips" });
+  if (!a.checked) {
+    chips.append(el("span", { className: "chip", textContent: "not checked yet" }));
+  } else if (!a.tier) {
+    chips.append(el("span", { className: "chip meh", textContent: "not on your services · skipped" }));
+  } else {
+    const cls = a.tier === "subscription" ? "good" : "meh";
+    for (const o of a.options) chips.append(el("span", { className: `chip ${cls}`, textContent: o.provider_name }));
+  }
+  const lines = [el("p", { textContent: `${a.tier_label} · ${s.channels.join(", ")}` })];
+  if (a.other_subscriptions.length) {
+    lines.push(el("p", { textContent: `Also on: ${a.other_subscriptions.join(", ")}` }));
+  }
+  return el("li", { className: "show-item" },
+    s.poster_url ? el("img", { className: "poster", src: s.poster_url, alt: "" }) : el("div", { className: "poster" }),
+    el("div", {}, el("h3", { textContent: s.show_name }), ...lines, chips),
+  );
+}
+
+// --- wiring -----------------------------------------------------------------
+
 $("reroll").addEventListener("click", () => currentChannel && pick(currentChannel));
 $("play").addEventListener("click", playOnTv);
+$("shows-btn").addEventListener("click", loadShows);
 $("back").addEventListener("click", () => {
   showView("channels");
   loadChannels();

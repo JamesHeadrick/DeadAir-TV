@@ -3,4 +3,4 @@ __pycache__/
 .pytest_cache/
 data/
 .env
-channels.yaml
+config.yaml

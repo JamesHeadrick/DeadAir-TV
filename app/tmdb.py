@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import re
-
 import httpx
 
 API_BASE = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p"
+
+PROVIDER_TYPES = ("flatrate", "free", "ads", "rent", "buy")
 
 # TMDB allows up to 20 sub-requests per call via append_to_response.
 _APPEND_LIMIT = 20
@@ -82,36 +82,22 @@ class TMDBClient:
         }
         return show, episodes
 
-    async def fetch_flatrate_providers(self, tmdb_id: int, region: str) -> list[dict]:
+    async def fetch_providers(self, tmdb_id: int, region: str) -> dict:
+        """Watch providers for one region, grouped by type.
+
+        Returns {"link": <TMDB watch page>, "flatrate": [...], "free": [...],
+        "ads": [...], "rent": [...], "buy": [...]}.
+        """
         data = await self._get(f"/tv/{tmdb_id}/watch/providers")
         region_data = (data.get("results") or {}).get(region) or {}
-        return [
-            {"provider_id": p.get("provider_id"), "provider_name": p.get("provider_name", "")}
-            for p in region_data.get("flatrate", [])
-        ]
-
-
-def _norm(name: str) -> str:
-    name = name.lower().replace("+", "plus")
-    return re.sub(r"[^a-z0-9]", "", name)
-
-
-def service_available(service: str, providers: list[dict]) -> bool:
-    """Loose match of a configured service name against TMDB provider names.
-
-    "Disney+" matches "Disney Plus"; "Netflix" matches "Netflix Standard with Ads".
-    Add-on channels sold through another store ("Max Amazon Channel") don't
-    count as the service itself.
-    """
-    want = _norm(service)
-    if not want:
-        return False
-    for p in providers:
-        have = _norm(p.get("provider_name", ""))
-        if not have:
-            continue
-        if have == want or want.startswith(have):
-            return True
-        if have.startswith(want) and "channel" not in have[len(want) :]:
-            return True
-    return False
+        out: dict = {"link": region_data.get("link")}
+        for kind in PROVIDER_TYPES:
+            out[kind] = [
+                {
+                    "provider_id": p.get("provider_id"),
+                    "provider_name": p.get("provider_name", ""),
+                    "logo_path": p.get("logo_path"),
+                }
+                for p in sorted(region_data.get(kind, []), key=lambda p: p.get("display_priority", 999))
+            ]
+        return out

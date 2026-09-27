@@ -13,6 +13,7 @@
 <header>
   <button id="back" class="icon-btn" hidden aria-label="Back to channels">←</button>
   <h1>DeadAir&nbsp;TV</h1>
+  <button id="shows-btn" class="text-btn">All shows</button>
 </header>
 
 <main>
@@ -28,18 +29,23 @@
         <p class="channel-label" id="p-channel"></p>
         <h2 id="p-show"></h2>
         <p class="ep-line"><span id="p-code" class="code"></span> <span id="p-title"></span></p>
-        <p id="p-flag" class="flag" hidden></p>
         <p id="p-overview" class="overview"></p>
       </div>
     </article>
+    <p id="p-tier" class="tier"></p>
     <div class="actions">
-      <a id="open" class="btn primary" target="_blank" rel="noopener">Open</a>
+      <div id="watch-options" class="watch-options"></div>
       <div class="row">
         <button id="play" class="btn" hidden>Play on TV</button>
         <button id="reroll" class="btn">Reroll</button>
       </div>
     </div>
     <p id="play-status" class="notice" hidden></p>
+  </section>
+
+  <section id="shows-view" hidden>
+    <p id="my-services" class="notice"></p>
+    <ul id="show-list" class="show-list"></ul>
   </section>
 </main>
 

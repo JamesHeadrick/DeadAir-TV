@@ -1,0 +1,160 @@
+"""Work out where *you* can watch a show, from TMDB watch-provider data.
+
+Tiers, best first; only the best non-empty tier is shown:
+  1. subscription - TMDB "flatrate" providers that match your `services`
+  2. free         - TMDB "free" + "ads" providers (Tubi, Pluto TV, ...)
+  3. rent_buy     - TMDB "rent" + "buy" providers
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from urllib.parse import quote, quote_plus
+
+from .config import AppConfig, ShowConfig
+from .tmdb import image_url
+
+TIER_LABELS = {
+    "subscription": "On your services",
+    "free": "Free with ads",
+    "rent_buy": "Rent or buy",
+}
+
+# Search pages per service; {q} is the URL-encoded show name. Keys are matched
+# with the same loose rules as service names. Override/extend via
+# `search_urls:` in config.yaml.
+DEFAULT_SEARCH_URLS = {
+    "Netflix": "https://www.netflix.com/search?q={q}",
+    "Hulu": "https://www.hulu.com/search?q={q}",
+    "Disney Plus": "https://www.disneyplus.com/search?q={q}",
+    "HBO Max": "https://play.hbomax.com/search?q={q}",
+    "Max": "https://play.max.com/search?q={q}",
+    "Peacock": "https://www.peacocktv.com/search?q={q}",
+    "Paramount Plus": "https://www.paramountplus.com/search/?q={q}",
+    "Apple TV": "https://tv.apple.com/search?term={q}",
+    "Amazon Prime Video": "https://www.amazon.com/s?k={q}&i=instant-video",
+    "Amazon Video": "https://www.amazon.com/s?k={q}&i=instant-video",
+    "Tubi": "https://tubitv.com/search/{q_path}",
+    "The Roku Channel": "https://therokuchannel.roku.com/search/{q_path}",
+    "Pluto TV": "https://pluto.tv/search/details?query={q}",
+    "YouTube": "https://www.youtube.com/results?search_query={q}",
+    "Google Play Movies": "https://play.google.com/store/search?q={q}&c=movies",
+    "Fandango At Home": "https://athome.fandango.com/content/browse/search?searchString={q}",
+}
+
+
+def _norm(name: str) -> str:
+    name = name.lower().replace("+", "plus")
+    return re.sub(r"[^a-z0-9]", "", name)
+
+
+def names_match(configured: str, provider_name: str) -> bool:
+    """Loose match of a service name you typed against a TMDB provider name.
+
+    "Disney+" matches "Disney Plus"; "Netflix" matches "Netflix Standard with Ads".
+    Add-on channels sold through another store ("HBO Max Amazon Channel") don't
+    count as the service itself.
+    """
+    want, have = _norm(configured), _norm(provider_name)
+    if not want or not have:
+        return False
+    if have == want or want.startswith(have):
+        return True
+    return have.startswith(want) and "channel" not in have[len(want):]
+
+
+def _lookup(mapping: dict[str, str], provider_name: str) -> str | None:
+    # Prefer an exact normalized match so "Max" doesn't claim "HBO Max" etc.
+    for key, val in mapping.items():
+        if _norm(key) == _norm(provider_name):
+            return val
+    for key, val in mapping.items():
+        if names_match(key, provider_name):
+            return val
+    return None
+
+
+@dataclass
+class WatchOption:
+    provider_id: int | None
+    provider_name: str
+    logo_url: str | None
+    url: str
+
+
+@dataclass
+class Access:
+    checked: bool                      # False until the first provider check
+    tier: str | None = None            # None = nowhere you can watch
+    options: list[WatchOption] = field(default_factory=list)
+    other_subscriptions: list[str] = field(default_factory=list)  # services you don't have
+
+    @property
+    def watchable(self) -> bool:
+        # Unchecked shows stay pickable so a fresh install works immediately.
+        return not self.checked or self.tier is not None
+
+    def to_dict(self) -> dict:
+        return {
+            "checked": self.checked,
+            "tier": self.tier,
+            "tier_label": TIER_LABELS.get(self.tier or "", "Not on any of your services"),
+            "options": [o.__dict__ for o in self.options],
+            "other_subscriptions": self.other_subscriptions,
+        }
+
+
+def _dedupe(providers: list[dict]) -> list[dict]:
+    seen, out = set(), []
+    for p in providers:
+        key = p.get("provider_id") or p.get("provider_name")
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
+
+
+def compute_access(
+    cfg: AppConfig, show: ShowConfig, show_name: str, providers: dict | None
+) -> Access:
+    if providers is None:
+        return Access(checked=False)
+
+    flatrate = providers.get("flatrate", [])
+    mine = []
+    for service in cfg.services:  # keep your ordering: first listed wins
+        mine += [p for p in flatrate if names_match(service, p["provider_name"])]
+    mine = _dedupe(mine)
+    others = [p["provider_name"] for p in flatrate if p not in mine]
+
+    tiers = [("subscription", mine)]
+    if cfg.include_free:
+        tiers.append(("free", _dedupe(providers.get("free", []) + providers.get("ads", []))))
+    if cfg.include_rent_buy:
+        tiers.append(("rent_buy", _dedupe(providers.get("rent", []) + providers.get("buy", []))))
+
+    for tier, found in tiers:
+        if found:
+            return Access(
+                checked=True,
+                tier=tier,
+                options=[_option(cfg, show, show_name, p, providers.get("link")) for p in found],
+                other_subscriptions=others,
+            )
+    return Access(checked=True, other_subscriptions=others)
+
+
+def _option(cfg: AppConfig, show: ShowConfig, show_name: str, p: dict, tmdb_link: str | None) -> WatchOption:
+    name = p["provider_name"]
+    url = _lookup(show.links, name)
+    if not url:
+        template = _lookup(cfg.search_urls, name) or _lookup(DEFAULT_SEARCH_URLS, name)
+        if template:
+            url = template.format(q=quote_plus(show_name), q_path=quote(show_name, safe=""))
+    return WatchOption(
+        provider_id=p.get("provider_id"),
+        provider_name=name,
+        logo_url=image_url(p.get("logo_path"), "w92"),
+        url=url or tmdb_link or f"https://www.themoviedb.org/tv/{show.tmdb_id}/watch",
+    )

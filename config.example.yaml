@@ -1,0 +1,48 @@
+# Copy to config.yaml and edit.
+
+# The subscriptions you pay for, as TMDB/JustWatch names them. Matching is
+# loose (case/punctuation-insensitive, "Disney+" == "Disney Plus",
+# "Netflix" also matches "Netflix Standard with Ads"). The "All shows" page
+# lists the exact names TMDB reports for services you don't have.
+# The order here is the order you see watch options in.
+services:
+  - Netflix
+  - Hulu
+  - Disney Plus
+
+# Where to watch, best first: your subscriptions > free/with ads (Tubi,
+# Pluto TV, ...) > rent/buy. Only the best available tier is shown. Turn off
+# the lower tiers here if you don't want them; shows with nowhere left to
+# watch are skipped when picking.
+include_free: true
+include_rent_buy: true
+
+# Optional: add or override search links per service. {q} = URL-encoded show name.
+# search_urls:
+#   Peacock Premium: https://www.peacocktv.com/search?q={q}
+
+# Each show once. tmdb_id is in the show's URL on themoviedb.org, e.g.
+# https://www.themoviedb.org/tv/1400-seinfeld -> 1400.
+#   channels: one or more tags; each tag becomes a channel button.
+#   weight:   optional, default 1. Multiplies the odds of each of this
+#             show's episodes (weight 2 = each episode twice as likely).
+#   name:     optional display-name override.
+#   links:    optional exact deep links per service. They beat the default
+#             search link and make "Play on TV" more reliable.
+shows:
+  - tmdb_id: 1400       # Seinfeld
+    channels: [sitcom]
+  - tmdb_id: 2316       # The Office (US)
+    channels: [sitcom]
+  - tmdb_id: 1668       # Friends
+    channels: [sitcom]
+  - tmdb_id: 615        # Futurama
+    channels: [sitcom, scifi, short]
+  - tmdb_id: 655        # Star Trek: The Next Generation
+    channels: [scifi]
+    weight: 1.5
+  - tmdb_id: 60625      # Rick and Morty
+    channels: [scifi, short]
+  # - tmdb_id: 1400
+  #   links:
+  #     Netflix: https://www.netflix.com/title/<id>

@@ -94,7 +94,7 @@ class Database:
                 episodes,
             )
 
-    def set_providers(self, tmdb_id: int, providers: list[dict]) -> None:
+    def set_providers(self, tmdb_id: int, providers: dict) -> None:
         with self.connect() as conn:
             conn.execute(
                 """

@@ -14,11 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import adb
-from .config import ChannelConfig, ConfigError, Settings, ShowConfig, load_channels
+from .access import Access, compute_access
+from .config import AppConfig, ConfigError, Settings, ShowConfig, load_config
 from .db import Database
 from .picker import pick_episode
 from .sync import Syncer
-from .tmdb import TMDBClient, image_url, service_available
+from .tmdb import TMDBClient, image_url
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("deadair")
@@ -29,18 +30,17 @@ STATIC_DIR = Path(__file__).parent / "static"
 class State:
     settings: Settings
     db: Database
-    channels: ChannelConfig
+    config: AppConfig
     syncer: Syncer | None = None
 
 
 state = State()
+_background: set[asyncio.Task] = set()
 
 
 class PlayRequest(BaseModel):
-    channel: str
     tmdb_id: int
-
-_background: set[asyncio.Task] = set()
+    provider_id: int | None = None  # which watch option; default = the first
 
 
 def create_app(settings: Settings | None = None, start_sync: bool = True) -> FastAPI:
@@ -50,14 +50,14 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     async def lifespan(app: FastAPI):
         state.settings = settings
         state.db = Database(settings.db_path)
-        state.channels = load_channels(settings.config_path)
+        state.config = load_config(settings.config_path)
         client = None
         task = None
         if settings.tmdb_api_key:
             client = TMDBClient(settings.tmdb_api_key)
             state.syncer = Syncer(settings, state.db, client)
             if start_sync:
-                task = asyncio.create_task(state.syncer.loop(lambda: state.channels))
+                task = asyncio.create_task(state.syncer.loop(lambda: state.config))
         else:
             log.warning("TMDB_API_KEY not set; episode data will not be fetched")
         yield
@@ -80,36 +80,48 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
 
     @app.get("/api/channels")
     async def channels():
-        cfg = state.channels
-        rows = state.db.get_shows([s.tmdb_id for s in cfg.all_shows()])
+        info = _show_infos(state.config.shows)
         out = []
-        for name, shows in cfg.channels.items():
+        for name, shows in state.config.channels.items():
             out.append(
                 {
                     "name": name,
-                    "shows": [_show_status(s, rows.get(s.tmdb_id)) for s in shows],
+                    "shows": [info[s.tmdb_id]["show_name"] for s in shows],
+                    "unwatchable": [
+                        info[s.tmdb_id]["show_name"] for s in shows if not info[s.tmdb_id]["_watchable"]
+                    ],
                 }
             )
         return {
             "channels": out,
+            "services": state.config.services,
             "adb_enabled": state.settings.enable_adb and bool(state.settings.tv_ip),
             "sync_error": state.syncer.last_error if state.syncer else "TMDB_API_KEY not set",
         }
 
+    @app.get("/api/shows")
+    async def shows():
+        """Every configured show and where you can watch it."""
+        info = _show_infos(state.config.shows)
+        return {"shows": [_public(info[s.tmdb_id]) for s in state.config.shows]}
+
     @app.get("/api/pick")
     async def pick(channel: str):
-        shows = state.channels.channels.get(channel)
+        shows = state.config.channels.get(channel)
         if shows is None:
             raise HTTPException(404, f"unknown channel {channel!r}")
-        result = pick_episode(state.db, shows)
+        info = _show_infos(shows)
+        watchable = [s for s in shows if info[s.tmdb_id]["_watchable"]]
+        if not watchable:
+            raise HTTPException(404, "none of this channel's shows are on your services")
+        result = pick_episode(state.db, watchable)
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
         show, ep = result
         row = state.db.get_show(show.tmdb_id)
-        status = _show_status(show, row)
         return {
             "channel": channel,
-            **status,
+            **_public(info[show.tmdb_id]),
             "season": ep["season"],
             "episode": ep["episode"],
             "code": f"S{ep['season']:02d}E{ep['episode']:02d}",
@@ -125,26 +137,32 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         s = state.settings
         if not (s.enable_adb and s.tv_ip):
             raise HTTPException(404, "Play on TV is disabled (set ENABLE_ADB=true and TV_IP)")
-        # Only launch URLs from our own config, never arbitrary client input.
-        show = state.channels.find_show(req.channel, req.tmdb_id)
+        # URLs are rebuilt server-side from config + TMDB data, never taken from the client.
+        show = state.config.find_show(req.tmdb_id)
         if show is None:
-            raise HTTPException(404, "show not found in channel")
+            raise HTTPException(404, "unknown show")
+        access = _show_infos([show])[show.tmdb_id]["_access"]
+        options = access.options
+        if req.provider_id is not None:
+            options = [o for o in options if o.provider_id == req.provider_id]
+        if not options:
+            raise HTTPException(404, "no watch option for this show")
         try:
-            out = await adb.play_on_tv(s.tv_ip, s.adb_port, show.show_url)
+            out = await adb.play_on_tv(s.tv_ip, s.adb_port, options[0].url)
         except (adb.ADBError, FileNotFoundError) as e:
             raise HTTPException(502, str(e))
         return {"ok": True, "output": out}
 
     @app.post("/api/refresh")
     async def refresh():
-        """Reload channels.yaml and force a full TMDB refresh in the background."""
+        """Reload config.yaml and force a full TMDB refresh in the background."""
         try:
-            state.channels = load_channels(state.settings.config_path)
+            state.config = load_config(state.settings.config_path)
         except (ConfigError, OSError) as e:
             raise HTTPException(400, f"config error: {e}")
         if state.syncer is None:
             raise HTTPException(503, "TMDB_API_KEY not set")
-        task = asyncio.create_task(state.syncer.run_once(state.channels, force=True))
+        task = asyncio.create_task(state.syncer.run_once(state.config, force=True))
         _background.add(task)
         task.add_done_callback(_background.discard)
         return {"ok": True}
@@ -152,17 +170,28 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     return app
 
 
-def _show_status(show: ShowConfig, row) -> dict:
-    providers = json.loads(row["providers_json"]) if row and row["providers_json"] else None
-    return {
-        "tmdb_id": show.tmdb_id,
-        "show_name": show.name or (row["name"] if row and row["name"] else f"TMDB #{show.tmdb_id}"),
-        "service": show.service,
-        "show_url": show.show_url,
-        # None = not checked yet
-        "available": None if providers is None else service_available(show.service, providers),
-        "providers": [p["provider_name"] for p in providers] if providers else [],
-    }
+def _show_infos(shows: list[ShowConfig]) -> dict[int, dict]:
+    rows = state.db.get_shows([s.tmdb_id for s in shows])
+    out = {}
+    for show in shows:
+        row = rows.get(show.tmdb_id)
+        name = show.name or (row["name"] if row and row["name"] else f"TMDB #{show.tmdb_id}")
+        providers = json.loads(row["providers_json"]) if row and row["providers_json"] else None
+        access: Access = compute_access(state.config, show, name, providers)
+        out[show.tmdb_id] = {
+            "tmdb_id": show.tmdb_id,
+            "show_name": name,
+            "channels": list(show.channels),
+            "poster_url": image_url(row["poster_path"], "w185") if row else None,
+            "access": access.to_dict(),
+            "_access": access,
+            "_watchable": access.watchable,
+        }
+    return out
+
+
+def _public(info: dict) -> dict:
+    return {k: v for k, v in info.items() if not k.startswith("_")}
 
 
 app = create_app()

@@ -18,7 +18,7 @@ RUN useradd --uid 1000 --home-dir /data --no-create-home app \
 USER app
 ENV HOME=/data \
     PYTHONUNBUFFERED=1 \
-    CHANNELS_CONFIG=/config/channels.yaml \
+    CONFIG_PATH=/config/config.yaml \
     DB_PATH=/data/deadair.db
 
 EXPOSE 8000

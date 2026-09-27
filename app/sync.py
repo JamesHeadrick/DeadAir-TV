@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 
-from .config import ChannelConfig, Settings
+from .config import AppConfig, Settings
 from .db import Database
 from .tmdb import TMDBClient
 
@@ -26,12 +26,12 @@ class Syncer:
     def _stale(self, ts: float | None, max_age_s: float, now: float) -> bool:
         return ts is None or now - ts >= max_age_s
 
-    async def run_once(self, channels: ChannelConfig, force: bool = False) -> None:
+    async def run_once(self, cfg: AppConfig, force: bool = False) -> None:
         async with self._lock:
             now = time.time()
             ep_age = self.settings.episode_refresh_days * 86400
             prov_age = self.settings.provider_check_hours * 3600
-            tmdb_ids = sorted({s.tmdb_id for s in channels.all_shows()})
+            tmdb_ids = sorted({s.tmdb_id for s in cfg.shows})
             existing = self.db.get_shows(tmdb_ids)
             self.last_error = None
 
@@ -48,7 +48,7 @@ class Syncer:
 
                 if force or self._stale(row and row["providers_checked_at"], prov_age, now):
                     try:
-                        providers = await self.client.fetch_flatrate_providers(
+                        providers = await self.client.fetch_providers(
                             tmdb_id, self.settings.watch_region
                         )
                         self.db.set_providers(tmdb_id, providers)
@@ -56,10 +56,10 @@ class Syncer:
                         self.last_error = f"providers for {tmdb_id}: {e}"
                         log.warning("provider check failed for %s: %s", tmdb_id, e)
 
-    async def loop(self, get_channels) -> None:
+    async def loop(self, get_config) -> None:
         while True:
             try:
-                await self.run_once(get_channels())
+                await self.run_once(get_config())
             except Exception:
                 log.exception("sync loop iteration failed")
             await asyncio.sleep(LOOP_INTERVAL_S)
