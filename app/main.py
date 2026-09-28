@@ -104,6 +104,7 @@ class ConfigIn(BaseModel):
     include_rent_buy: bool = True
     cooldown_days: float = 14
     search_urls: dict[str, str] = {}
+    channels: dict[str, dict[str, str]] = {}  # per-channel extras, e.g. {"scifi": {"emoji": "🚀"}}
     shows: list[ShowIn]
 
 
@@ -351,6 +352,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             out.append(
                 {
                     "name": name,
+                    "emoji": current_config().channel_emoji(name),
                     "shows": [info[s.tmdb_id]["show_name"] for s in shows],
                     "unwatchable": [
                         info[s.tmdb_id]["show_name"] for s in shows if not info[s.tmdb_id]["_watchable"]
@@ -406,8 +408,13 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
         picked, ep = result
         row = state.db.get_show(picked.tmdb_id)
+        cfg = current_config()
         return {
             "channel": channel,
+            # Emoji for the picked channel and the show's other channels (only those that have one).
+            "channel_emoji": {
+                c: e for c in {channel, *picked.channels} if (e := cfg.channel_emoji(c))
+            },
             # How many other shows "Different show" could still offer.
             "other_shows": sum(1 for s in watchable if s.tmdb_id not in skip_show and s is not picked),
             **_public(info[picked.tmdb_id]),
@@ -501,6 +508,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "include_rent_buy": cfg.include_rent_buy,
             "cooldown_days": cfg.cooldown_days,
             "search_urls": cfg.search_urls,
+            "channels": cfg.channel_meta,
             # What "Open" uses for each of your services when search_urls has no entry.
             "builtin_search_urls": {
                 svc: url for svc in cfg.services if (url := builtin_search_url(svc))

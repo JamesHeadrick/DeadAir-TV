@@ -141,7 +141,9 @@ async function loadChannels() {
 
 function channelButton(ch) {
   const text = el("span", { className: "text" },
-    el("span", { className: "name", textContent: ch.name }),
+    el("span", { className: "name" },
+      ch.emoji ? el("span", { className: "emoji", textContent: ch.emoji, ariaHidden: "true" }) : null,
+      el("span", { textContent: ch.name })),
     el("span", { className: "meta", textContent: ch.shows.join(" · ") }),
   );
   if (ch.unwatchable.length) {
@@ -256,7 +258,9 @@ function renderChannelLabel(ep) {
   const others = (ep?.channels || [])
     .filter((c) => c !== currentChannel)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  const emoji = ep?.channel_emoji?.[currentChannel];
   $("p-channel").replaceChildren(
+    emoji ? el("span", { className: "emoji", textContent: emoji, ariaHidden: "true" }) : "",
     el("span", { textContent: currentChannel }),
     ...others.map((c) => el("span", { className: "other", textContent: c, title: `${ep.show_name} is also on ${c}` })),
   );

@@ -5,6 +5,7 @@ import time
 from collections import Counter
 
 import httpx
+import yaml
 import pytest
 from fastapi.testclient import TestClient
 
@@ -684,3 +685,37 @@ def test_channels_sorted_case_insensitively_with_posters(client):
     chans = client.get("/api/channels").json()["channels"]
     assert [c["name"] for c in chans] == ["Animation", "comedy"]
     assert chans[1]["posters"] == ["https://image.tmdb.org/t/p/w92/one.jpg"]
+
+
+def test_channel_emoji_config():
+    cfg = parse_config({
+        "channels": {"scifi": {"emoji": "🚀"}, "sitcom": {"emoji": ""}, "drama": None,
+                     "family": {"emoji": "👨‍👩‍👧‍👦"}},  # multi-codepoint emoji is fine
+        "shows": [{"tmdb_id": 1, "channels": ["scifi", "sitcom"]}],
+    })
+    assert cfg.channel_meta == {"scifi": {"emoji": "🚀"}, "family": {"emoji": "👨‍👩‍👧‍👦"}}
+    assert cfg.channel_emoji("scifi") == "🚀" and cfg.channel_emoji("sitcom") is None
+    text = dump_config(cfg)
+    assert "channels:\n  family:" in text and "scifi:\n    emoji: 🚀" in text
+    assert parse_config(yaml.safe_load(text)).channel_meta == cfg.channel_meta
+
+    with pytest.raises(ConfigError, match="no longer list shows"):  # the original config format
+        parse_config({"channels": {"sitcom": [{"tmdb_id": 1}]}, "shows": []})
+    with pytest.raises(ConfigError, match="single emoji"):
+        parse_config({"channels": {"x": {"emoji": "🚀" * 20}}, "shows": []})
+
+
+def test_channel_emoji_api(client):
+    cfg = client.get("/api/config").json()
+    body = {k: cfg[k] for k in ("version", "services", "include_free", "include_rent_buy",
+                                "cooldown_days", "search_urls")}
+    body["channels"] = {"sitcom": {"emoji": "😂"}}
+    body["shows"] = [{k: s[k] for k in ("tmdb_id", "channels", "weight", "name", "title", "links")}
+                     for s in cfg["shows"]]
+    assert client.put("/api/config", json=body).status_code == 200
+    assert client.get("/api/config").json()["channels"] == {"sitcom": {"emoji": "😂"}}
+
+    chans = {c["name"]: c for c in client.get("/api/channels").json()["channels"]}
+    assert chans["sitcom"]["emoji"] == "😂" and chans["short"]["emoji"] is None
+    ep = client.get("/api/pick", params={"channel": "short"}).json()  # show 1 is on short + sitcom
+    assert ep["channel_emoji"] == {"sitcom": "😂"}

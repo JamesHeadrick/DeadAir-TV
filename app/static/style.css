@@ -100,6 +100,8 @@ main {
 .channel-btn .name { font-size: 1.35rem; font-weight: 700; text-transform: capitalize; }
 .channel-btn .meta { color: var(--muted); font-size: .9rem; }
 .channel-btn .text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.channel-btn .name .emoji { margin-right: 10px; }
+.channel-label .emoji { margin-right: 6px; font-size: 1rem; vertical-align: -1px; }
 .channel-btn .warn { color: var(--warn-text); font-size: .8rem; margin-top: 4px; }
 /* Fanned-out stack of show posters */
 .channel-btn .posters { display: flex; flex: none; padding-right: 4px; }
@@ -300,6 +302,27 @@ main {
 .toggle { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin-top: 2px; }
 #settings-shows { margin-top: 12px; }
+.channel-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.channel-list > li { background: var(--surface-2); border-radius: 10px; padding: 6px; }
+.channel-row { display: flex; align-items: center; gap: 8px; }
+.channel-row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.channel-row .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-row small { color: var(--muted); font-size: .75rem; }
+.channel-row .btn.small { min-height: 34px; padding: 0 8px; font-size: .8rem; background: var(--bg); flex: none; }
+.channel-row .btn.small.danger { background: var(--warn-bg); }
+.emoji-slot {
+  width: 40px; height: 40px; flex: none;
+  border: 0; border-radius: 10px; background: var(--bg);
+  font-size: 1.3rem; line-height: 1; cursor: pointer; color: var(--text);
+}
+.emoji-slot.empty { color: var(--muted); font-size: 1.1rem; }
+.emoji-slot[aria-expanded="true"] { outline: 2px solid var(--accent); }
+.emoji-picker { padding: 10px 4px 4px; display: flex; flex-direction: column; gap: 8px; }
+.emoji-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; }
+.emoji-choice { height: 40px; border: 0; border-radius: 8px; background: var(--bg); font-size: 1.3rem; cursor: pointer; }
+.emoji-choice.on { outline: 2px solid var(--accent); }
+.emoji-custom { display: flex; gap: 6px; }
+.emoji-custom .field { flex: 1; min-width: 0; }
 .service-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .service-row { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 10px; padding: 6px 6px 6px 10px; }
 .service-row .rank { color: var(--muted); font-size: .85rem; width: 1.2em; text-align: right; }

@@ -17,6 +17,7 @@ function stripped(d) {
     include_rent_buy: d.include_rent_buy,
     cooldown_days: d.cooldown_days,
     search_urls: d.search_urls,
+    channels: d.channels,
     shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links }) =>
       ({ tmdb_id, channels, weight, name, title, links })),
   };
@@ -200,11 +201,115 @@ function renderSearchResults(results) {
 }
 
 function renderShows() {
+  renderChannelSettings(); // show tags define the channels, so keep that panel in sync
   const list = $("settings-shows");
   if (!draft.shows.length) {
     return list.replaceChildren(el("li", { className: "hint", textContent: "No shows yet. Search above to add one." }));
   }
   list.replaceChildren(...draft.shows.map(showRow));
+}
+
+// --- channels -----------------------------------------------------------------
+
+const EMOJI_SUGGESTIONS = ["📺", "🚀", "😂", "🎬", "👻", "🕵️", "🍿", "🧸", "🤠", "🏰", "🔪", "🌍", "🎭", "🐉", "❤️", "🧪", "🎵", "⚽"];
+let emojiOpen = null; // channel whose emoji picker is open
+
+function setChannelEmoji(name, emoji) {
+  draft.channels = { ...draft.channels };
+  if (emoji) draft.channels[name] = { ...(draft.channels[name] || {}), emoji };
+  else delete draft.channels[name];
+  emojiOpen = null;
+  renderChannelSettings();
+  changed();
+}
+
+function renameChannel(from) {
+  const to = (prompt(`Rename "${from}" to:`, from) || "").trim();
+  if (!to || to === from) return;
+  const existing = allChannels().includes(to);
+  if (existing && !confirm(`"${to}" already exists. Merge "${from}" into it?`)) return;
+  for (const show of draft.shows) {
+    if (show.channels.includes(from)) {
+      show.channels = [...new Set(show.channels.map((c) => (c === from ? to : c)))];
+    }
+  }
+  draft.channels = { ...draft.channels };
+  if (draft.channels[from] && !draft.channels[to]) draft.channels[to] = draft.channels[from];
+  delete draft.channels[from];
+  renderShows();
+  changed();
+}
+
+function deleteChannel(name) {
+  const tagged = draft.shows.filter((s) => s.channels.includes(name));
+  const orphans = tagged.filter((s) => s.channels.length === 1);
+  let msg = `Remove the "${name}" channel from ${tagged.length} show${tagged.length === 1 ? "" : "s"}?`;
+  if (orphans.length) {
+    msg += `\n\nThese will be left with no channel, so you'll need to give them one before saving:\n• ${orphans.map(showTitle).join("\n• ")}`;
+  }
+  if (!confirm(msg)) return;
+  for (const show of tagged) show.channels = show.channels.filter((c) => c !== name);
+  orphans.forEach((s) => expanded.add(s.tmdb_id));
+  draft.channels = { ...draft.channels };
+  delete draft.channels[name];
+  renderShows();
+  changed();
+}
+
+function renderChannelSettings() {
+  const list = $("channel-list");
+  const names = allChannels().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  if (!names.length) {
+    return list.replaceChildren(el("li", { className: "hint", textContent: "Channels appear here once your shows have channel tags." }));
+  }
+  list.replaceChildren(...names.map((name) => {
+    const emoji = draft.channels?.[name]?.emoji || "";
+    const count = draft.shows.filter((s) => s.channels.includes(name)).length;
+    const emojiBtn = el("button", {
+      className: "emoji-slot" + (emoji ? "" : " empty"),
+      textContent: emoji || "＋",
+      title: emoji ? "Change emoji" : "Add an emoji",
+      ariaLabel: `${emoji ? "Change" : "Add"} emoji for ${name}`,
+      ariaExpanded: String(emojiOpen === name),
+    });
+    emojiBtn.addEventListener("click", () => {
+      emojiOpen = emojiOpen === name ? null : name;
+      renderChannelSettings();
+    });
+    const rename = el("button", { className: "btn small", textContent: "Rename" });
+    rename.addEventListener("click", () => renameChannel(name));
+    const del = el("button", { className: "btn small danger", textContent: "Delete" });
+    del.addEventListener("click", () => deleteChannel(name));
+    const li = el("li", {},
+      el("div", { className: "channel-row" },
+        emojiBtn,
+        el("span", { className: "grow" },
+          el("span", { className: "cname", textContent: name, title: name }),
+          el("small", { textContent: `${count} show${count === 1 ? "" : "s"}` })),
+        rename, del));
+    if (emojiOpen === name) li.append(emojiPicker(name, emoji));
+    return li;
+  }));
+}
+
+function emojiPicker(name, current) {
+  const input = el("input", {
+    className: "field emoji-input", value: current, maxLength: 16,
+    placeholder: "Type or paste an emoji", ariaLabel: `Emoji for ${name}`,
+  });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") setChannelEmoji(name, input.value.trim()); });
+  const use = el("button", { className: "btn small", textContent: "Use" });
+  use.addEventListener("click", () => setChannelEmoji(name, input.value.trim()));
+  const none = el("button", { className: "btn small", textContent: "None" });
+  none.addEventListener("click", () => setChannelEmoji(name, ""));
+  const chips = EMOJI_SUGGESTIONS.map((e) => {
+    const b = el("button", { className: "emoji-choice" + (e === current ? " on" : ""), textContent: e, ariaLabel: `Use ${e}` });
+    b.addEventListener("click", () => setChannelEmoji(name, e));
+    return b;
+  });
+  return el("div", { className: "emoji-picker" },
+    el("div", { className: "emoji-choices" }, ...chips),
+    el("div", { className: "emoji-custom" }, input, use, none));
 }
 
 function showRow(show) {

@@ -21,6 +21,11 @@ include_rent_buy: true
 # search_urls:
 #   Peacock Premium: https://www.peacocktv.com/search?q={q}
 
+# Optional: an emoji per channel, shown on its button (Settings > Channels
+# can set these too).
+channels:
+  scifi: {emoji: 🚀}
+
 # Each show once. tmdb_id is in the show's URL on themoviedb.org, e.g.
 # https://www.themoviedb.org/tv/1400-seinfeld -> 1400.
 #   channels: one or more tags; each tag becomes a channel button.

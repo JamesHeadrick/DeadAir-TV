@@ -84,6 +84,10 @@ Everything in `config.yaml` can be edited from the web UI:
 - **Shows**: search TMDB by name to add a show. For each show you can edit its
   channel tags (pick an existing channel or type a new one), its weight, a
   display name, and its deep links.
+- **Channels**: every channel in use, with an optional emoji (pick from
+  suggestions or type your own), plus **Rename** and **Delete**, which apply
+  to every show tagged with that channel. Renaming onto an existing channel
+  merges the two.
 - **Watched & skipped**: set the cooldown length and clear the history.
 - **Search links**: add or override a service's search URL.
 
@@ -113,7 +117,13 @@ shows:
 ```
 
 - **Channels** are tags. Each tag becomes a channel button, and a show can
-  have as many as you like.
+  have as many as you like. The channel list is alphabetical. An optional
+  top-level `channels:` section adds extras per channel, currently just an
+  emoji:
+  ```yaml
+  channels:
+    scifi: {emoji: 🚀}
+  ```
 - **services** are matched against TMDB provider names, ignoring case and
   punctuation. An exact match wins. If you picked "Netflix", its other plans
   (like "Netflix Standard with Ads") aren't shown as extra options. If there's

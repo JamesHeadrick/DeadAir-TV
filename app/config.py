@@ -69,7 +69,13 @@ class AppConfig:
     include_rent_buy: bool = True
     cooldown_days: float = 14  # watched/skipped episodes sit out this long
     search_urls: dict[str, str] = field(default_factory=dict)
+    # Optional per-channel settings, e.g. {"scifi": {"emoji": "🚀"}}. Channels
+    # themselves come from show tags; this only decorates them.
+    channel_meta: dict[str, dict[str, str]] = field(default_factory=dict)
     shows: list[ShowConfig] = field(default_factory=list)
+
+    def channel_emoji(self, name: str) -> str | None:
+        return self.channel_meta.get(name, {}).get("emoji") or None
 
     @property
     def channels(self) -> dict[str, list[ShowConfig]]:
@@ -152,14 +158,45 @@ def parse_config(data: object) -> AppConfig:
     if cooldown < 0:
         raise ConfigError("cooldown_days can't be negative")
 
+    channel_meta = _parse_channel_meta(data.get("channels"))
+
     return AppConfig(
         services=list(dict.fromkeys(str(s).strip() for s in services if str(s).strip())),
         include_free=bool(data.get("include_free", True)),
         include_rent_buy=bool(data.get("include_rent_buy", True)),
         cooldown_days=cooldown,
         search_urls=_str_map(data.get("search_urls"), "search_urls"),
+        channel_meta=channel_meta,
         shows=shows,
     )
+
+
+MAX_EMOJI_LEN = 16  # one emoji can be several code points (skin tones, ZWJ sequences, flags)
+
+
+def _parse_channel_meta(raw: object) -> dict[str, dict[str, str]]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError("'channels' must be a mapping like  scifi: {emoji: 🚀}")
+    out: dict[str, dict[str, str]] = {}
+    for name, meta in raw.items():
+        where = f"channels.{name}"
+        if isinstance(meta, list):
+            raise ConfigError(
+                f"{where}: channels no longer list shows - tag each show with "
+                "`channels: [...]` instead, and use this section only for extras like emoji"
+            )
+        if meta is None:
+            continue
+        if not isinstance(meta, dict):
+            raise ConfigError(f"{where}: must be a mapping, e.g. {{emoji: 🚀}}")
+        emoji = str(meta.get("emoji") or "").strip()
+        if len(emoji) > MAX_EMOJI_LEN:
+            raise ConfigError(f"{where}.emoji: use a single emoji")
+        if emoji:
+            out[str(name).strip()] = {"emoji": emoji}
+    return out
 
 
 HEADER = "# DeadAir config. Edited by the web UI (Settings); hand edits are fine too.\n"
@@ -187,6 +224,8 @@ def dump_config(cfg: AppConfig) -> str:
     }
     if cfg.search_urls:
         data["search_urls"] = dict(cfg.search_urls)
+    if cfg.channel_meta:
+        data["channels"] = {name: dict(meta) for name, meta in sorted(cfg.channel_meta.items())}
     data["shows"] = shows
     return HEADER + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
 
