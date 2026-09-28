@@ -45,6 +45,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 PROVIDER_LIST_TTL_S = 86400
+CHANNEL_POSTERS = 4  # show posters fanned out on each channel button
 
 
 class State:
@@ -345,7 +346,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     async def channels():
         info = _show_infos(current_config().shows)
         out = []
-        for name, shows in current_config().channels.items():
+        for name, shows in sorted(current_config().channels.items(), key=lambda kv: kv[0].casefold()):
+            watchable = [info[s.tmdb_id] for s in shows if info[s.tmdb_id]["_watchable"]]
             out.append(
                 {
                     "name": name,
@@ -353,6 +355,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "unwatchable": [
                         info[s.tmdb_id]["show_name"] for s in shows if not info[s.tmdb_id]["_watchable"]
                     ],
+                    # Poster thumbnails for the channel button, watchable shows only.
+                    "posters": [i["thumb_url"] for i in watchable if i["thumb_url"]][:CHANNEL_POSTERS],
                 }
             )
         return {
@@ -564,6 +568,7 @@ def _show_infos(shows: list[ShowConfig]) -> dict[int, dict]:
             "show_name": name,
             "channels": list(show.channels),
             "poster_url": image_url(row["poster_path"], "w185") if row else None,
+            "thumb_url": image_url(row["poster_path"], "w92") if row else None,
             "access": access.to_dict(),
             "_access": access,
             "_watchable": access.watchable,

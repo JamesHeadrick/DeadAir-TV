@@ -317,9 +317,11 @@ def client(tmp_path):
 
 def test_api_channels_and_shows(client):
     data = client.get("/api/channels").json()
-    assert [c["name"] for c in data["channels"]] == ["sitcom", "short"]
-    assert data["channels"][0]["shows"] == ["Show 1", "Show 2"]
-    assert data["channels"][0]["unwatchable"] == ["Show 2"]
+    assert [c["name"] for c in data["channels"]] == ["short", "sitcom"]  # alphabetical
+    sitcom = data["channels"][1]
+    assert sitcom["shows"] == ["Show 1", "Show 2"]
+    assert sitcom["unwatchable"] == ["Show 2"]
+    assert sitcom["posters"] == []  # the test shows have no poster art
     assert data["services"] == ["Netflix"]
     assert data["adb_enabled"] is True
 
@@ -413,8 +415,8 @@ def test_api_config_get_put_and_conflict(client):
     on_disk = load_config(main.state.settings.config_path)
     assert on_disk.services == ["Hulu", "Netflix"] and not on_disk.include_rent_buy
     channels = client.get("/api/channels").json()["channels"]
-    assert [c["name"] for c in channels] == ["sitcom", "scifi", "short"]
-    assert channels[1]["shows"] == ["Show 2", "Brand New"]  # uncached show falls back to title
+    assert [c["name"] for c in channels] == ["scifi", "short", "sitcom"]
+    assert channels[0]["shows"] == ["Show 2", "Brand New"]  # uncached show falls back to title
     assert client.get("/api/config").json()["version"] == new_version
 
     # Stale version -> 409; invalid config -> 400, file untouched.
@@ -669,3 +671,16 @@ def test_builtin_search_urls_include_store_channels(client):
     assert client.get("/api/config").json()["builtin_search_urls"] == {
         "Netflix": "https://www.netflix.com/search?q={q}",
     }
+
+
+def test_channels_sorted_case_insensitively_with_posters(client):
+    db = main.state.db
+    db.replace_episodes({**_show(1), "poster_path": "/one.jpg"}, _eps(1, 1, 3))
+    main.state.settings.config_path.write_text(
+        "services: [Netflix]\nshows:\n"
+        "  - {tmdb_id: 1, channels: [comedy, Animation]}\n"
+        "  - {tmdb_id: 2, channels: [comedy]}\n"  # on Hulu only: not watchable, so no poster
+    )
+    chans = client.get("/api/channels").json()["channels"]
+    assert [c["name"] for c in chans] == ["Animation", "comedy"]
+    assert chans[1]["posters"] == ["https://image.tmdb.org/t/p/w92/one.jpg"]

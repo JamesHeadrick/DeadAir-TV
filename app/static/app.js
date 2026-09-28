@@ -140,17 +140,24 @@ async function loadChannels() {
 }
 
 function channelButton(ch) {
-  const btn = el("button", { className: "channel-btn" },
+  const text = el("span", { className: "text" },
     el("span", { className: "name", textContent: ch.name }),
     el("span", { className: "meta", textContent: ch.shows.join(" · ") }),
   );
   if (ch.unwatchable.length) {
-    btn.append(el("span", {
+    text.append(el("span", {
       className: "warn",
-      textContent: `⚠ ${ch.unwatchable.length} unavailable`,
-      title: `Not on your services, skipped: ${ch.unwatchable.join(", ")}`,
+      textContent: `⚠ ${ch.unwatchable.length} not on your services`,
+      title: `Skipped when picking: ${ch.unwatchable.join(", ")}`,
     }));
   }
+  const posters = el("span", { className: "posters", ariaHidden: "true" },
+    ...ch.posters.map((src) => {
+      const img = el("img", { src, alt: "", loading: "lazy" });
+      img.addEventListener("error", () => img.remove()); // no broken-image icons if TMDB's CDN hiccups
+      return img;
+    }));
+  const btn = el("button", { className: "channel-btn" }, text, ch.posters.length ? posters : null);
   btn.addEventListener("click", () => {
     current = null;
     enterChannel(ch.name);
@@ -195,7 +202,7 @@ async function pick(mode = "any") {
 
 function render(ep, error) {
   current = ep;
-  $("p-channel").textContent = currentChannel;
+  renderChannelLabel(ep);
   $("other-show").hidden = !ep || ep.other_shows === 0;
   $("same-show").hidden = !ep;
   $("watched").hidden = !ep;
@@ -242,6 +249,17 @@ function render(ep, error) {
   });
   $("watch-options").replaceChildren(...opts);
   $("play").hidden = !adbEnabled || !access.options.length;
+}
+
+// "COMEDY · scifi · short": the channel you picked from, then the show's other channels, dimmed.
+function renderChannelLabel(ep) {
+  const others = (ep?.channels || [])
+    .filter((c) => c !== currentChannel)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  $("p-channel").replaceChildren(
+    el("span", { textContent: currentChannel }),
+    ...others.map((c) => el("span", { className: "other", textContent: c, title: `${ep.show_name} is also on ${c}` })),
+  );
 }
 
 function ago(ts) {
