@@ -1,4 +1,4 @@
-"""DeadAir TV: pick a channel, get a random episode."""
+"""DeadAir: pick a channel, get a random episode."""
 
 from __future__ import annotations
 
@@ -216,7 +216,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             await state.tmdb.aclose()
             state.tmdb = None
 
-    app = FastAPI(title="DeadAir TV", lifespan=lifespan)
+    app = FastAPI(title="DeadAir", lifespan=lifespan)
 
     @app.middleware("http")
     async def require_login(request: Request, call_next):

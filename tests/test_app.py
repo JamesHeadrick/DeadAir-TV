@@ -83,7 +83,7 @@ def test_dump_config_round_trips(tmp_path):
     })
     assert cfg.services == ["Netflix", "Hulu"]
     text = dump_config(cfg)
-    assert text.startswith("# DeadAir TV config")
+    assert text.startswith("# DeadAir config")
     assert "weight" not in text.split("tmdb_id: 2")[0]  # default weight not written
     path = tmp_path / "config.yaml"
     save_config(path, text)

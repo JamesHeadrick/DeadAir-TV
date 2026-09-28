@@ -1,5 +1,7 @@
-# DeadAir-TV
+# DeadAir
 Solves the "there's nothing to watch" once and for all
+
+(The repo and Docker container are named `DeadAir-TV` / `deadair-tv`; the app itself is just DeadAir.)
 
 A small self-hosted "random episode channel" web app. You list the streaming
 services you have and the shows you like, tagging each show with one or more

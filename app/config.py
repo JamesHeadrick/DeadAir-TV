@@ -162,7 +162,7 @@ def parse_config(data: object) -> AppConfig:
     )
 
 
-HEADER = "# DeadAir TV config. Edited by the web UI (Settings); hand edits are fine too.\n"
+HEADER = "# DeadAir config. Edited by the web UI (Settings); hand edits are fine too.\n"
 
 
 def dump_config(cfg: AppConfig) -> str:
