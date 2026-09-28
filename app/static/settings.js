@@ -92,21 +92,35 @@ async function loadProviders() {
 const logoFor = (name) => providers?.find((p) => p.provider_name === name)?.logo_url;
 
 function renderServices() {
-  $("my-service-chips").replaceChildren(...draft.services.map((name, i) => {
+  const list = $("my-service-chips");
+  const n = draft.services.length;
+  const update = () => { renderServices(); renderProviderList(); changed(); };
+  const iconBtn = (text, label, disabled, onClick) => {
+    const b = el("button", { className: "btn small", textContent: text, ariaLabel: label, title: label, disabled });
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  list.replaceChildren(...draft.services.map((name, i) => {
     const logo = logoFor(name);
-    const chip = el("button", { className: "chip-btn" + (logo ? "" : " plain"), title: "Remove" },
-      logo ? el("img", { src: logo, alt: "" }) : null, `${i + 1}. ${name} ✕`);
-    chip.addEventListener("click", () => {
-      draft.services.splice(i, 1);
-      renderServices();
-      renderProviderList();
-      changed();
-    });
-    return chip;
+    const move = (to) => {
+      const [svc] = draft.services.splice(i, 1);
+      draft.services.splice(to, 0, svc);
+      update();
+      // Keep focus on the same service's button so repeated taps keep moving it.
+      list.children[to]?.querySelector(to < i ? "[data-dir=up]" : "[data-dir=down]")?.focus();
+    };
+    const up = iconBtn("↑", `Move ${name} up`, i === 0, () => move(i - 1));
+    const down = iconBtn("↓", `Move ${name} down`, i === n - 1, () => move(i + 1));
+    up.dataset.dir = "up";
+    down.dataset.dir = "down";
+    return el("li", { className: "service-row" },
+      el("span", { className: "rank", textContent: i + 1 }),
+      logo ? el("img", { src: logo, alt: "" }) : el("span", { className: "ph" }),
+      el("span", { className: "grow", textContent: name }),
+      up, down,
+      iconBtn("✕", `Remove ${name}`, false, () => { draft.services.splice(i, 1); update(); }));
   }));
-  if (!draft.services.length) {
-    $("my-service-chips").append(el("span", { className: "hint", textContent: "None yet." }));
-  }
+  if (!n) list.append(el("li", { className: "hint", textContent: "None yet." }));
 }
 
 function renderProviderList() {

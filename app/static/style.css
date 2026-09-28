@@ -284,6 +284,13 @@ main {
 .toggle { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin-top: 2px; }
 #settings-shows { margin-top: 12px; }
+.service-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.service-row { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 10px; padding: 6px 6px 6px 10px; }
+.service-row .rank { color: var(--muted); font-size: .85rem; width: 1.2em; text-align: right; }
+.service-row img, .service-row .ph { width: 28px; height: 28px; border-radius: 6px; flex: none; background: var(--bg); }
+.service-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-row .btn.small { min-height: 36px; min-width: 36px; padding: 0; background: var(--bg); font-size: 1rem; }
+.service-row .btn.small:disabled { opacity: .3; cursor: default; }
 .settings-show { flex-direction: column; }
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
 .settings-show .head .poster { width: 40px; }
