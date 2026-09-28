@@ -331,6 +331,8 @@ select.field { appearance: auto; }
 
 .history-note { margin: 12px 0 0; font-size: .85rem; color: var(--muted); font-style: italic; }
 .btn.compact { min-height: 48px; font-size: 1rem; }
+.btn .icon { width: 1.7em; height: 1.7em; margin-right: 8px; flex: none; }
+#reroll:not(:disabled):active .icon { transform: rotate(-25deg); }
 #watched[aria-pressed="true"] { background: #103a35; color: var(--accent); }
 .inline-field { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .inline-field .field { width: 90px; }
