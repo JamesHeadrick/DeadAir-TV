@@ -4,7 +4,14 @@ Solves the "there's nothing to watch" once and for all
 A small self-hosted "random episode channel" web app. You list the streaming
 services you have and the shows you like, tagging each show with one or more
 channels (`sitcom`, `scifi`, `short`...). Tap a channel and it picks a random
-episode, then shows where *you* can watch it. **Reroll** picks again.
+episode, then shows where *you* can watch it. Not feeling it?
+
+- **Different show**: another show from the same channel. Skipped shows stay
+  skipped until you leave the channel.
+- **Another episode**: same show, different episode.
+- **Reroll**: anything from the channel.
+
+None of them repeat an episode you've already been shown during that channel visit.
 
 - Episode lists come from TMDB and are cached in SQLite. They refresh weekly.
 - Once a day it asks TMDB (JustWatch data) where each show is streaming and

@@ -191,6 +191,18 @@ def test_pick_includes_undated_episodes_of_ended_shows(tmp_path):
     assert pick_episode(db, [ShowConfig(1, ("c",))]) is not None
 
 
+def test_pick_avoids_excluded_episodes_until_none_left(tmp_path):
+    db = Database(tmp_path / "t.db")
+    db.replace_episodes(_show(1), _eps(1, 1, 3))
+    shows = [ShowConfig(1, ("c",))]
+    rng = random.Random(3)
+    for _ in range(30):
+        _, ep = pick_episode(db, shows, rng, exclude_episodes=["1:1:1", "1:1:3"])
+        assert ep["episode"] == 2
+    # Everything already seen -> exclusions are dropped instead of failing.
+    assert pick_episode(db, shows, rng, exclude_episodes=["1:1:1", "1:1:2", "1:1:3"]) is not None
+
+
 def test_pick_with_empty_cache_returns_none(tmp_path):
     assert pick_episode(Database(tmp_path / "t.db"), [ShowConfig(1, ("c",))]) is None
 
@@ -305,6 +317,37 @@ def test_api_pick_skips_unwatchable_shows(client):
     assert ep["code"].startswith("S01E0")
     assert ep["access"]["options"][0]["url"] == "https://netflix.example/1?a=1&b=2"
     assert client.get("/api/pick", params={"channel": "nope"}).status_code == 404
+
+
+def test_api_pick_other_show_and_same_show(client):
+    db = main.state.db
+    db.set_providers(2, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})
+    db.replace_episodes(_show(3), _eps(3, 1, 3))
+    db.set_providers(3, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})
+    main.state.settings.config_path.write_text(
+        "services: [Netflix]\nshows:\n"
+        "  - {tmdb_id: 1, channels: [sitcom]}\n"
+        "  - {tmdb_id: 2, channels: [sitcom]}\n"
+        "  - {tmdb_id: 3, channels: [sitcom]}\n"
+    )
+
+    def get(**params):
+        r = client.get("/api/pick", params={"channel": "sitcom", **params})
+        return r.status_code, r.json()
+
+    # Different show: skipped shows never come back.
+    for _ in range(20):
+        _, ep = get(skip_show=[1])
+        assert ep["tmdb_id"] in (2, 3)
+    _, ep = get(skip_show=[1, 2])
+    assert ep["tmdb_id"] == 3 and ep["other_shows"] == 0
+    assert get(skip_show=[1, 2, 3])[0] == 404
+
+    # Another episode of the same show, avoiding ones already seen.
+    for _ in range(10):
+        _, ep = get(show=2, skip_ep=["2:1:1", "2:1:2"])
+        assert (ep["tmdb_id"], ep["episode"]) == (2, 3)
+    assert ep["other_shows"] == 2
 
 
 def test_api_play_uses_server_side_url(client, monkeypatch):

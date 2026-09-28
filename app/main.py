@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -176,7 +176,18 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         return {"shows": [_public(info[s.tmdb_id]) for s in current_config().shows]}
 
     @app.get("/api/pick")
-    async def pick(channel: str):
+    async def pick(
+        channel: str,
+        show: int | None = None,
+        skip_show: list[int] = Query(default=[]),
+        skip_ep: list[str] = Query(default=[]),
+    ):
+        """Random episode from a channel.
+
+        show:      only pick from this show ("another episode").
+        skip_show: shows to leave out ("different show").
+        skip_ep:   "tmdb_id:season:episode" keys to avoid (already seen).
+        """
         shows = current_config().channels.get(channel)
         if shows is None:
             raise HTTPException(404, f"unknown channel {channel!r}")
@@ -184,14 +195,21 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         watchable = [s for s in shows if info[s.tmdb_id]["_watchable"]]
         if not watchable:
             raise HTTPException(404, "none of this channel's shows are on your services")
-        result = pick_episode(state.db, watchable)
+        candidates = [s for s in watchable if s.tmdb_id not in skip_show]
+        if show is not None:
+            candidates = [s for s in watchable if s.tmdb_id == show]
+        if not candidates:
+            raise HTTPException(404, "no other shows left in this channel")
+        result = pick_episode(state.db, candidates, exclude_episodes=skip_ep[-500:])
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
-        show, ep = result
-        row = state.db.get_show(show.tmdb_id)
+        picked, ep = result
+        row = state.db.get_show(picked.tmdb_id)
         return {
             "channel": channel,
-            **_public(info[show.tmdb_id]),
+            # How many other shows "Different show" could still offer.
+            "other_shows": sum(1 for s in watchable if s.tmdb_id not in skip_show and s is not picked),
+            **_public(info[picked.tmdb_id]),
             "season": ep["season"],
             "episode": ep["episode"],
             "code": f"S{ep['season']:02d}E{ep['episode']:02d}",

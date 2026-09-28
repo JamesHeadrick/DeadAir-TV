@@ -109,34 +109,55 @@ class Database:
 
     # --- episodes ----------------------------------------------------------
 
-    def pickable_episode_counts(self, tmdb_ids: list[int], today: str) -> dict[int, int]:
-        """Number of aired, non-special episodes per show."""
+    def pickable_episode_counts(
+        self, tmdb_ids: list[int], today: str, exclude: list[str] = ()
+    ) -> dict[int, int]:
+        """Number of aired, non-special episodes per show.
+
+        ``exclude`` holds episode keys ("tmdb_id:season:episode") to leave out.
+        """
         if not tmdb_ids:
             return {}
         marks = ",".join("?" * len(tmdb_ids))
+        skip_sql, skip_args = _exclude_sql(exclude)
         with self.connect() as conn:
             rows = conn.execute(
                 f"""
                 SELECT e.tmdb_id, COUNT(*) AS n
                 FROM episodes e JOIN shows s USING (tmdb_id)
-                WHERE e.tmdb_id IN ({marks}) AND {_AIRED_SQL}
+                WHERE e.tmdb_id IN ({marks}) AND {_AIRED_SQL} {skip_sql}
                 GROUP BY e.tmdb_id
                 """,
-                [*tmdb_ids, today],
+                [*tmdb_ids, today, *skip_args],
             )
             return {r["tmdb_id"]: r["n"] for r in rows}
 
-    def nth_pickable_episode(self, tmdb_id: int, n: int, today: str) -> sqlite3.Row | None:
+    def nth_pickable_episode(
+        self, tmdb_id: int, n: int, today: str, exclude: list[str] = ()
+    ) -> sqlite3.Row | None:
+        skip_sql, skip_args = _exclude_sql(exclude)
         with self.connect() as conn:
             return conn.execute(
                 f"""
                 SELECT e.* FROM episodes e JOIN shows s USING (tmdb_id)
-                WHERE e.tmdb_id = ? AND {_AIRED_SQL}
+                WHERE e.tmdb_id = ? AND {_AIRED_SQL} {skip_sql}
                 ORDER BY e.season, e.episode
                 LIMIT 1 OFFSET ?
                 """,
-                (tmdb_id, today, n),
+                (tmdb_id, today, *skip_args, n),
             ).fetchone()
+
+
+def episode_key(tmdb_id: int, season: int, episode: int) -> str:
+    return f"{tmdb_id}:{season}:{episode}"
+
+
+def _exclude_sql(keys) -> tuple[str, list]:
+    keys = list(keys)
+    if not keys:
+        return "", []
+    marks = ",".join("?" * len(keys))
+    return f"AND (e.tmdb_id || ':' || e.season || ':' || e.episode) NOT IN ({marks})", keys
 
 
 # An episode is pickable once it has aired. Undated episodes are only trusted

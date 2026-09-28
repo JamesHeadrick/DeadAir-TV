@@ -4,6 +4,9 @@ const $ = (id) => document.getElementById(id);
 
 let adbEnabled = false;
 let currentChannel = null;
+// Per channel visit: shows you've skipped and episodes you've already been shown.
+let skippedShows = new Set();
+let seenEpisodes = [];
 let current = null;
 
 async function api(path, opts) {
@@ -64,31 +67,53 @@ function channelButton(ch) {
       title: `Not on your services, skipped: ${ch.unwatchable.join(", ")}`,
     }));
   }
-  btn.addEventListener("click", () => pick(ch.name));
+  btn.addEventListener("click", () => {
+    current = null;
+    enterChannel(ch.name);
+  });
   return btn;
 }
 
 // --- pick -------------------------------------------------------------------
 
-async function pick(channel) {
+function enterChannel(channel) {
   currentChannel = channel;
+  skippedShows = new Set();
+  seenEpisodes = [];
+  pick();
+}
+
+// mode: "any" (full reroll), "other-show" (skip this show), "same-show" (another episode of it)
+async function pick(mode = "any") {
+  const params = new URLSearchParams({ channel: currentChannel });
+  if (current && mode === "other-show") skippedShows.add(current.tmdb_id);
+  if (current && mode === "same-show") params.set("show", current.tmdb_id);
+  skippedShows.forEach((id) => params.append("skip_show", id));
+  seenEpisodes.forEach((k) => params.append("skip_ep", k));
+
   showView("pick");
   showNotice($("play-status"), "");
   document.body.classList.add("loading");
-  $("reroll").disabled = true;
+  const buttons = ["reroll", "other-show", "same-show"].map($);
+  buttons.forEach((b) => (b.disabled = true));
   try {
-    render(await api(`api/pick?channel=${encodeURIComponent(channel)}`));
+    const ep = await api(`api/pick?${params}`);
+    seenEpisodes.push(`${ep.tmdb_id}:${ep.season}:${ep.episode}`);
+    seenEpisodes = seenEpisodes.slice(-200);
+    render(ep);
   } catch (e) {
     render(null, e.message);
   } finally {
     document.body.classList.remove("loading");
-    $("reroll").disabled = false;
+    buttons.forEach((b) => (b.disabled = false));
   }
 }
 
 function render(ep, error) {
   current = ep;
   $("p-channel").textContent = currentChannel;
+  $("other-show").hidden = !ep || ep.other_shows === 0;
+  $("same-show").hidden = !ep;
   const still = $("still");
   if (!ep) {
     $("p-show").textContent = "Nothing to show";
@@ -191,7 +216,9 @@ function showItem(s) {
 
 // --- wiring -----------------------------------------------------------------
 
-$("reroll").addEventListener("click", () => currentChannel && pick(currentChannel));
+$("reroll").addEventListener("click", () => pick("any"));
+$("other-show").addEventListener("click", () => pick("other-show"));
+$("same-show").addEventListener("click", () => pick("same-show"));
 $("play").addEventListener("click", playOnTv);
 $("shows-btn").addEventListener("click", loadShows);
 $("back").addEventListener("click", () => {
