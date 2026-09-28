@@ -650,3 +650,22 @@ def test_manage_set_password(tmp_path, monkeypatch):
     assert manage.main(["set-password", "rescue"]) == 0  # existing user: password only
     u = db.get_user_by_name("rescue")
     assert u["is_admin"] and auth.verify_password("otherpass1", u["password_hash"])
+
+
+def test_builtin_search_urls_include_store_channels(client):
+    from app.access import builtin_search_url
+    assert builtin_search_url("Netflix") == "https://www.netflix.com/search?q={q}"
+    assert builtin_search_url("BritBox Amazon Channel") == builtin_search_url("Amazon Video")
+    assert builtin_search_url("Starz Apple TV Channel") == builtin_search_url("Apple TV")
+    assert builtin_search_url("Obscure Streamer") is None
+
+    # A show only on an Amazon Channel you have opens an Amazon search, not TMDB's page.
+    cfg = AppConfig(services=["BritBox Amazon Channel"])
+    a = compute_access(cfg, ShowConfig(7, ("x",)), "Taskmaster",
+                       {"flatrate": _prov("BritBox Amazon Channel"), "link": "https://tmdb/w"})
+    assert a.options[0].url == "https://www.amazon.com/s?k=Taskmaster&i=instant-video"
+
+    main.state.settings.config_path.write_text("services: [Netflix, Obscure Streamer]\nshows: []\n")
+    assert client.get("/api/config").json()["builtin_search_urls"] == {
+        "Netflix": "https://www.netflix.com/search?q={q}",
+    }

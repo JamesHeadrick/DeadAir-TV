@@ -309,7 +309,10 @@ main {
 .settings-show .row2 { display: flex; gap: 8px; }
 .settings-show .row2 > * { flex: 1; min-width: 0; }
 .kv-row { display: flex; gap: 6px; margin-bottom: 6px; }
-.kv-row .field:first-child { flex: 0 0 38%; }
+.kv-row .kv-key { flex: 0 0 38%; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kv-row { flex-wrap: nowrap; align-items: flex-start; }
+.kv-row > .field { flex: 1; min-width: 0; }
+select.field { appearance: auto; }
 .kv-row .x { flex: none; width: 44px; }
 .warn-text { color: var(--warn-text); font-size: .85rem; }
 .btn.danger { background: var(--warn-bg); color: var(--warn-text); }

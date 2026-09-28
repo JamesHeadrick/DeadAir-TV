@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import adb, auth
-from .access import Access, compute_access
+from .access import Access, builtin_search_url, compute_access
 from .config import (
     AppConfig,
     ConfigError,
@@ -497,6 +497,10 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "include_rent_buy": cfg.include_rent_buy,
             "cooldown_days": cfg.cooldown_days,
             "search_urls": cfg.search_urls,
+            # What "Open" uses for each of your services when search_urls has no entry.
+            "builtin_search_urls": {
+                svc: url for svc in cfg.services if (url := builtin_search_url(svc))
+            },
             "shows": shows,
         }
 

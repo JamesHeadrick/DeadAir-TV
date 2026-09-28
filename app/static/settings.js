@@ -263,10 +263,13 @@ function showEditor(show) {
     show.links = Object.fromEntries(entries.filter(([a]) => a !== null));
     svc = k;
     changed();
-  }, () => { delete show.links[svc]; rerender(); }, draft.services)));
+  }, () => { delete show.links[svc]; rerender(); }, {
+    used: Object.keys(show.links).filter((k) => k !== svc),
+    placeholder: () => "https://… (link to this show in the app)",
+  })));
   const addLink = el("button", { className: "btn small", textContent: "Add deep link" });
   addLink.addEventListener("click", () => {
-    const svc = draft.services.find((s) => !(s in show.links)) || "Service";
+    const svc = draft.services.find((s) => !(s in show.links)) || "";
     show.links[svc] = "";
     rerender();
   });
@@ -288,36 +291,64 @@ function showEditor(show) {
     remove);
 }
 
-// A service/value pair editor row. onChange(key, value); onRemove().
-function kvRow(key, value, onChange, onRemove, suggestions = []) {
-  const listId = `dl-${Math.random().toString(36).slice(2)}`;
-  const k = el("input", { className: "field", value: key, placeholder: "Service", autocomplete: "off" });
-  k.setAttribute("list", listId);
-  const v = el("input", { className: "field", value, placeholder: "https://…", type: "url", autocomplete: "off" });
-  const update = () => onChange(k.value.trim(), v.value.trim());
-  k.addEventListener("change", update);
+// A service/value pair editor row: a dropdown of your services (plus "Other…"
+// for a typed name) and a value field.
+//   opts.used:        service names taken by other rows (shown disabled)
+//   opts.placeholder: (service) => placeholder text for the value field
+//   opts.type:        input type for the value field
+function kvRow(key, value, onChange, onRemove, opts = {}) {
+  const services = draft.services.includes(key) || !key ? draft.services : [key, ...draft.services];
+  const OTHER = "\u0000other";
+  const select = el("select", { className: "field", ariaLabel: "Service" },
+    ...services.map((s) => el("option", {
+      value: s, textContent: s, selected: s === key, disabled: s !== key && (opts.used || []).includes(s),
+    })),
+    el("option", { value: OTHER, textContent: "Other…" }));
+  if (!key) select.value = OTHER;
+  const typed = el("input", { className: "field", value: services.includes(key) ? "" : key, placeholder: "Service name", autocomplete: "off" });
+  const keyWrap = el("div", { className: "kv-key" }, select, typed);
+  typed.hidden = select.value !== OTHER;
+
+  const v = el("input", { className: "field", value, type: opts.type || "url", autocomplete: "off" });
+  const currentKey = () => (select.value === OTHER ? typed.value.trim() : select.value);
+  const refreshPlaceholder = () => { v.placeholder = opts.placeholder ? opts.placeholder(currentKey()) : "https://…"; };
+  const update = () => { refreshPlaceholder(); onChange(currentKey(), v.value.trim()); };
+  select.addEventListener("change", () => {
+    typed.hidden = select.value !== OTHER;
+    if (!typed.hidden) typed.focus();
+    update();
+  });
+  typed.addEventListener("input", update);
   v.addEventListener("input", update);
+  refreshPlaceholder();
+
   const x = el("button", { className: "btn small x", textContent: "✕", ariaLabel: "Remove" });
   x.addEventListener("click", onRemove);
-  return el("div", { className: "kv-row" }, k, v, x,
-    el("datalist", { id: listId }, ...suggestions.map((s) => el("option", { value: s }))));
+  return el("div", { className: "kv-row" }, keyWrap, v, x);
 }
 
 // --- search URLs --------------------------------------------------------------
 
 function renderSearchUrls() {
-  const rows = Object.entries(draft.search_urls).map(([svc, tpl]) => {
-    const row = kvRow(svc, tpl, (k, v) => {
-      const entries = Object.entries(draft.search_urls).map(([a, b]) => (a === svc ? [k, v] : [a, b]));
-      draft.search_urls = Object.fromEntries(entries);
-      svc = k;
-      changed();
-    }, () => { delete draft.search_urls[svc]; renderSearchUrls(); changed(); }, draft.services);
-    row.children[1].placeholder = "https://example.com/search?q={q}";
-    row.children[1].type = "text";
-    return row;
-  });
+  const builtin = draft.builtin_search_urls || {};
+  const keys = Object.keys(draft.search_urls);
+  const rows = keys.map((svc, idx) => kvRow(svc, draft.search_urls[svc], (k, v) => {
+    const entries = Object.entries(draft.search_urls).map(([a, b]) => (a === svc ? [k, v] : [a, b]));
+    draft.search_urls = Object.fromEntries(entries);
+    svc = k;
+    changed();
+  }, () => { delete draft.search_urls[svc]; renderSearchUrls(); changed(); }, {
+    type: "text",
+    used: keys.filter((_, j) => j !== idx),
+    placeholder: (k) => builtin[k] ? `Built-in: ${builtin[k]}` : "https://example.com/search?q={q}",
+  }));
   $("search-url-rows").replaceChildren(...rows);
+  const covered = draft.services.filter((s) => builtin[s] && !(s in draft.search_urls));
+  const missing = draft.services.filter((s) => !builtin[s] && !(s in draft.search_urls));
+  $("search-url-status").replaceChildren(
+    covered.length ? el("span", { textContent: `Built in for: ${covered.join(", ")}. ` }) : "",
+    missing.length ? el("span", { className: "warn-text", textContent: `No search link for: ${missing.join(", ")} (Open uses TMDB's page).` }) : "",
+  );
 }
 
 // --- save ---------------------------------------------------------------------
@@ -468,7 +499,10 @@ $("clear-history").addEventListener("click", async () => {
   }
 });
 $("add-search-url").addEventListener("click", () => {
-  draft.search_urls[draft.services.find((s) => !(s in draft.search_urls)) || ""] = "";
+  const builtin = draft.builtin_search_urls || {};
+  const unused = draft.services.filter((s) => !(s in draft.search_urls));
+  if ("" in draft.search_urls) return; // an unnamed row is already waiting
+  draft.search_urls[unused.find((s) => !builtin[s]) || unused[0] || ""] = "";
   renderSearchUrls();
   changed();
 });

@@ -76,6 +76,24 @@ def _match_service(service: str, providers: list[dict]) -> tuple[dict | None, li
     return (exact or variants or [None])[0], variants
 
 
+# Add-on channels are watched inside the store's own app, so search there.
+_CHANNEL_STORES = {
+    "amazonchannel": "Amazon Video",
+    "appletvchannel": "Apple TV",
+    "rokupremiumchannel": "The Roku Channel",
+}
+
+
+def builtin_search_url(service: str) -> str | None:
+    """The built-in search link template for a service name, if there is one."""
+    found = _lookup(DEFAULT_SEARCH_URLS, service)
+    if not found:
+        for suffix, store in _CHANNEL_STORES.items():
+            if _norm(service).endswith(suffix):
+                return DEFAULT_SEARCH_URLS[store]
+    return found
+
+
 def _lookup(mapping: dict[str, str], provider_name: str) -> str | None:
     # Prefer an exact normalized match so "Max" doesn't claim "HBO Max" etc.
     for key, val in mapping.items():
@@ -166,7 +184,7 @@ def _option(cfg: AppConfig, show: ShowConfig, show_name: str, p: dict, tmdb_link
     name = p["provider_name"]
     url = _lookup(show.links, name)
     if not url:
-        template = _lookup(cfg.search_urls, name) or _lookup(DEFAULT_SEARCH_URLS, name)
+        template = _lookup(cfg.search_urls, name) or builtin_search_url(name)
         if template:
             url = template.format(q=quote_plus(show_name), q_path=quote(show_name, safe=""))
     return WatchOption(
