@@ -169,7 +169,7 @@ main {
 }
 .tier strong { color: var(--text); }
 .tier.rent strong { color: var(--warn-text); }
-.actions .row .btn { flex: 1; }
+.actions .row .btn { flex: 1; min-width: 0; } /* never push past the screen edge */
 .btn {
   display: flex;
   align-items: center;
@@ -331,6 +331,10 @@ select.field { appearance: auto; }
 .history-note { margin: 12px 0 0; font-size: .85rem; color: var(--muted); font-style: italic; }
 .btn.compact { min-height: 48px; font-size: 1rem; }
 .btn .icon { width: 1.7em; height: 1.7em; margin-right: 8px; flex: none; }
+/* Half-width buttons: icon stacked above the label so both fit on narrow phones. */
+#other-show, #same-show { flex-direction: column; gap: 2px; padding: 6px 8px; min-height: 60px; font-size: .95rem; line-height: 1.15; }
+#other-show .icon, #same-show .icon { width: 1.5em; height: 1.5em; margin: 0; }
+
 #reroll:not(:disabled):active .icon { transform: rotate(-25deg); }
 #watched[aria-pressed="true"] { background: #103a35; color: var(--accent); }
 .inline-field { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
