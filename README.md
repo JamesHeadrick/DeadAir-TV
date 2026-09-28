@@ -201,4 +201,11 @@ CONFIG_PATH=config/config.yaml DB_PATH=data/dev.db TMDB_API_KEY=... uvicorn app.
 ## Attribution
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.
-Streaming availability data is provided by JustWatch via TMDB.
+Streaming availability data is provided by JustWatch via TMDB. Icons are
+from [game-icons.net](https://game-icons.net/), licensed under CC BY 3.0.
+
+In the app, all credits live on the **Credits** page, which is linked from
+the footer on every screen, including the login screen. The footer itself
+keeps only the JustWatch credit next to the "Credits" link. **Adding an
+icon?** Add a line for it to the icon list in the `credits-view` section of
+`app/static/index.html`.

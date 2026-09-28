@@ -32,11 +32,24 @@ function showNotice(node, msg, isError = false) {
   node.hidden = !msg;
 }
 
+let currentView = null;
+let viewBeforeCredits = null;
+
 function showView(name) {
-  for (const v of ["login", "channels", "pick", "shows", "settings"]) $(`${v}-view`).hidden = v !== name;
+  currentView = name;
+  for (const v of ["login", "channels", "pick", "shows", "settings", "credits"]) $(`${v}-view`).hidden = v !== name;
   $("back").hidden = name === "channels" || name === "login";
-  $("shows-btn").hidden = ["shows", "settings", "login"].includes(name);
-  $("settings-btn").hidden = name === "settings" || name === "login";
+  $("shows-btn").hidden = ["shows", "settings", "login", "credits"].includes(name) || !me;
+  $("settings-btn").hidden = name === "settings" || name === "login" || !me;
+}
+
+function openCredits(e) {
+  e.preventDefault();
+  if (currentView === "credits") return;
+  if (currentView === "settings" && !settingsCanLeave()) return;
+  viewBeforeCredits = currentView;
+  showView("credits");
+  window.scrollTo(0, 0);
 }
 
 // --- login ------------------------------------------------------------------
@@ -364,10 +377,17 @@ $("same-show").addEventListener("click", () => pick("same-show"));
 $("play").addEventListener("click", playOnTv);
 $("shows-btn").addEventListener("click", loadShows);
 $("back").addEventListener("click", () => {
+  if (currentView === "credits") {
+    // Return to where Credits was opened from (e.g. the login screen or a pick).
+    const back = me ? viewBeforeCredits : "login";
+    if (back === "login" || !me) return showLogin(setupMode);
+    if (back && back !== "settings") return showView(back);
+  }
   if (!settingsCanLeave()) return;
   showView("channels");
   loadChannels();
 });
+$("credits-link").addEventListener("click", openCredits);
 
 $("login-form").addEventListener("submit", submitLogin);
 
