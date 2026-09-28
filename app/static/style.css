@@ -310,6 +310,12 @@ main {
 }
 .save-bar span { flex: 1; font-size: .9rem; }
 
+.history-note { margin: 12px 0 0; font-size: .85rem; color: var(--muted); font-style: italic; }
+.btn.compact { min-height: 48px; font-size: 1rem; }
+#watched[aria-pressed="true"] { background: #103a35; color: var(--accent); }
+.inline-field { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.inline-field .field { width: 90px; }
+
 .notice { color: var(--muted); text-align: center; }
 .notice.error { color: var(--warn-text); }
 

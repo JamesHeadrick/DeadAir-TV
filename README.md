@@ -13,6 +13,18 @@ episode, then shows where *you* can watch it. Not feeling it?
 
 None of them repeat an episode you've already been shown during that channel visit.
 
+To keep an episode out of rotation for a while, mark it:
+
+- **Mark watched**: puts the episode on cooldown (14 days by default). Tap
+  it again to undo. Nothing counts as watched until you tap this, so rolling
+  an episode and never getting to it doesn't cost you anything.
+- **Skip**: "not this one." It goes on the same cooldown, and the app rerolls
+  straight away.
+
+When an episode comes back up after its cooldown, the card mentions it
+(e.g. "You watched this 3 weeks ago"). You can change the cooldown or clear
+the history in Settings.
+
 - Episode lists come from TMDB and are cached in SQLite. They refresh weekly.
 - Once a day it asks TMDB (JustWatch data) where each show is streaming and
   compares that against your services. Best option first:
@@ -64,6 +76,7 @@ Everything in `config.yaml` can be edited from the web UI:
 - **Shows**: search TMDB by name to add a show. For each show you can edit its
   channel tags (pick an existing channel or type a new one), its weight, a
   display name, and its deep links.
+- **Watched & skipped**: set the cooldown length and clear the history.
 - **Search links**: add or override a service's search URL.
 
 Saving rewrites `config/config.yaml` and keeps the previous version as

@@ -15,6 +15,7 @@ function stripped(d) {
     services: d.services,
     include_free: d.include_free,
     include_rent_buy: d.include_rent_buy,
+    cooldown_days: d.cooldown_days,
     search_urls: d.search_urls,
     shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links }) =>
       ({ tmdb_id, channels, weight, name, title, links })),
@@ -54,6 +55,7 @@ function renderSettings() {
   renderServices();
   $("include-free").checked = draft.include_free;
   $("include-rent-buy").checked = draft.include_rent_buy;
+  $("cooldown-days").value = draft.cooldown_days;
   renderShows();
   renderSearchUrls();
   changed();
@@ -345,6 +347,20 @@ $("provider-filter").addEventListener("keydown", (e) => {
 $("include-free").addEventListener("change", (e) => { draft.include_free = e.target.checked; changed(); });
 $("include-rent-buy").addEventListener("change", (e) => { draft.include_rent_buy = e.target.checked; changed(); });
 $("show-search").addEventListener("input", onSearchInput);
+$("cooldown-days").addEventListener("input", (e) => {
+  const d = parseFloat(e.target.value);
+  e.target.classList.toggle("invalid", !(d >= 0));
+  if (d >= 0) { draft.cooldown_days = d; changed(); }
+});
+$("clear-history").addEventListener("click", async () => {
+  if (!confirm("Forget every watched and skipped episode?")) return;
+  try {
+    const { deleted } = await api("api/history", { method: "DELETE" });
+    showNotice($("settings-error"), `Cleared ${deleted} history entr${deleted === 1 ? "y" : "ies"}.`);
+  } catch (e) {
+    showNotice($("settings-error"), `Couldn't clear history: ${e.message}`, true);
+  }
+});
 $("add-search-url").addEventListener("click", () => {
   draft.search_urls[draft.services.find((s) => !(s in draft.search_urls)) || ""] = "";
   renderSearchUrls();

@@ -32,6 +32,17 @@ CREATE TABLE IF NOT EXISTS episodes (
     runtime    INTEGER,
     PRIMARY KEY (tmdb_id, season, episode)
 );
+
+-- Episodes you marked watched or skipped; they sit out a cooldown.
+CREATE TABLE IF NOT EXISTS episode_history (
+    id      INTEGER PRIMARY KEY,
+    tmdb_id INTEGER NOT NULL,
+    season  INTEGER NOT NULL,
+    episode INTEGER NOT NULL,
+    kind    TEXT NOT NULL CHECK (kind IN ('watched', 'skipped')),
+    at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS episode_history_at ON episode_history (at);
 """
 
 
@@ -146,6 +157,46 @@ class Database:
                 """,
                 (tmdb_id, today, *skip_args, n),
             ).fetchone()
+
+
+    # --- history -----------------------------------------------------------
+
+    def add_history(self, tmdb_id: int, season: int, episode: int, kind: str) -> int:
+        with self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO episode_history (tmdb_id, season, episode, kind, at) VALUES (?, ?, ?, ?, ?)",
+                (tmdb_id, season, episode, kind, time.time()),
+            )
+            return cur.lastrowid
+
+    def undo_watched(self, tmdb_id: int, season: int, episode: int, since: float) -> None:
+        """Remove recent 'watched' marks for an episode (the button toggles)."""
+        with self.connect() as conn:
+            conn.execute(
+                """DELETE FROM episode_history WHERE tmdb_id = ? AND season = ? AND episode = ?
+                   AND kind = 'watched' AND at >= ?""",
+                (tmdb_id, season, episode, since),
+            )
+
+    def cooldown_keys(self, since: float) -> list[str]:
+        """Episode keys marked watched/skipped at or after ``since``."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT tmdb_id, season, episode FROM episode_history WHERE at >= ?", (since,)
+            )
+            return [episode_key(r["tmdb_id"], r["season"], r["episode"]) for r in rows]
+
+    def last_history(self, tmdb_id: int, season: int, episode: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute(
+                """SELECT kind, at FROM episode_history WHERE tmdb_id = ? AND season = ? AND episode = ?
+                   ORDER BY at DESC LIMIT 1""",
+                (tmdb_id, season, episode),
+            ).fetchone()
+
+    def clear_history(self) -> int:
+        with self.connect() as conn:
+            return conn.execute("DELETE FROM episode_history").rowcount
 
 
 def episode_key(tmdb_id: int, season: int, episode: int) -> str:

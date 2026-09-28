@@ -94,7 +94,7 @@ async function pick(mode = "any") {
   showView("pick");
   showNotice($("play-status"), "");
   document.body.classList.add("loading");
-  const buttons = ["reroll", "other-show", "same-show"].map($);
+  const buttons = ["reroll", "other-show", "same-show", "skip", "watched"].map($);
   buttons.forEach((b) => (b.disabled = true));
   try {
     const ep = await api(`api/pick?${params}`);
@@ -114,6 +114,9 @@ function render(ep, error) {
   $("p-channel").textContent = currentChannel;
   $("other-show").hidden = !ep || ep.other_shows === 0;
   $("same-show").hidden = !ep;
+  $("watched").hidden = !ep;
+  $("skip").hidden = !ep;
+  renderHistory(ep);
   const still = $("still");
   if (!ep) {
     $("p-show").textContent = "Nothing to show";
@@ -155,6 +158,72 @@ function render(ep, error) {
   });
   $("watch-options").replaceChildren(...opts);
   $("play").hidden = !adbEnabled || !access.options.length;
+}
+
+function ago(ts) {
+  const days = Math.floor((Date.now() / 1000 - ts) / 86400);
+  if (days < 1) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 730) return `${Math.round(days / 30)} months ago`;
+  return `${Math.round(days / 365)} years ago`;
+}
+
+function renderHistory(ep) {
+  const h = ep?.history;
+  const watchedNow = !!(h && h.kind === "watched" && h.cooling_down);
+  const btn = $("watched");
+  btn.setAttribute("aria-pressed", String(watchedNow));
+  btn.textContent = watchedNow ? "✓ Watched" : "Mark watched";
+  btn.title = watchedNow ? "Tap to undo" : "Mark as watched: it won't come up again for a while";
+  const note = $("p-history");
+  // Only mention history from before this pick; a mark you just made is shown by the button.
+  if (watchedNow) {
+    note.textContent = "Marked watched. It'll sit out the cooldown (tap ✓ Watched to undo).";
+    note.hidden = false;
+  } else if (h && !(h.kind === "skipped" && h.cooling_down)) {
+    note.textContent = `You ${h.kind === "watched" ? "watched" : "skipped"} this ${ago(h.at)}.`;
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+}
+
+const epRef = (ep) => ({ tmdb_id: ep.tmdb_id, season: ep.season, episode: ep.episode });
+
+async function toggleWatched() {
+  if (!current) return;
+  const btn = $("watched");
+  btn.disabled = true;
+  const undo = btn.getAttribute("aria-pressed") === "true";
+  try {
+    const res = await api(undo ? "api/history/unwatch" : "api/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(undo ? epRef(current) : { ...epRef(current), kind: "watched" }),
+    });
+    current.history = res.history;
+    renderHistory(current);
+  } catch (e) {
+    showNotice($("play-status"), `Couldn't save: ${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function skipEpisode() {
+  if (!current) return;
+  try {
+    await api("api/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...epRef(current), kind: "skipped" }),
+    });
+  } catch (e) {
+    return showNotice($("play-status"), `Couldn't save: ${e.message}`, true);
+  }
+  pick("any");
 }
 
 async function playOnTv() {
@@ -217,6 +286,8 @@ function showItem(s) {
 // --- wiring -----------------------------------------------------------------
 
 $("reroll").addEventListener("click", () => pick("any"));
+$("watched").addEventListener("click", toggleWatched);
+$("skip").addEventListener("click", skipEpisode);
 $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
 $("play").addEventListener("click", playOnTv);

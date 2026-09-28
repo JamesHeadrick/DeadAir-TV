@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import time
 from collections import Counter
 
 import httpx
@@ -438,3 +439,62 @@ def test_api_tmdb_search_and_providers(client):
                     "poster_url": "https://image.tmdb.org/t/p/w185/p.jpg"}]
     names = [p["provider_name"] for p in client.get("/api/tmdb/providers").json()["providers"]]
     assert names == ["Netflix", "Hulu"]
+
+
+def test_watched_and_skipped_episodes_cool_down(client, monkeypatch):
+    # Show 1 has 3 episodes and is the only watchable one in "short".
+    def pick():
+        return client.get("/api/pick", params={"channel": "short"}).json()
+
+    def mark(ep, kind):
+        r = client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": ep, "kind": kind})
+        assert r.status_code == 200, r.text
+        return r.json()["history"]
+
+    h = mark(1, "watched")
+    assert h["kind"] == "watched" and h["cooling_down"]
+    mark(2, "skipped")
+    for _ in range(10):
+        ep = pick()
+        assert ep["episode"] == 3 and ep["history"] is None
+
+    # Undoing "watched" puts episode 1 back in rotation.
+    r = client.post("/api/history/unwatch", json={"tmdb_id": 1, "season": 1, "episode": 1})
+    assert r.json()["history"] is None
+    assert {pick()["episode"] for _ in range(30)} == {1, 3}
+
+    # After the cooldown, everything is back and the card mentions the old skip.
+    now = time.time()
+    monkeypatch.setattr(main.time, "time", lambda: now + 15 * 86400)
+    seen = {}
+    for _ in range(40):
+        ep = pick()
+        seen[ep["episode"]] = ep["history"]
+    assert set(seen) == {1, 2, 3}
+    assert seen[2]["kind"] == "skipped" and not seen[2]["cooling_down"]
+
+    assert client.post("/api/history", json={"tmdb_id": 99, "season": 1, "episode": 1,
+                                             "kind": "watched"}).status_code == 404
+    assert client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": 1,
+                                             "kind": "loved"}).status_code == 422
+    assert client.delete("/api/history").json()["deleted"] == 1  # the undone "watched" is already gone
+
+
+def test_everything_on_cooldown_still_picks(client):
+    for ep in (1, 2, 3):
+        client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": ep, "kind": "watched"})
+    assert client.get("/api/pick", params={"channel": "short"}).status_code == 200
+
+
+def test_cooldown_days_in_config(client):
+    cfg = client.get("/api/config").json()
+    assert cfg["cooldown_days"] == 14
+    body = {k: cfg[k] for k in ("version", "services", "include_free", "include_rent_buy", "search_urls")}
+    body["cooldown_days"] = 3
+    body["shows"] = [{k: s[k] for k in ("tmdb_id", "channels", "weight", "name", "title", "links")}
+                     for s in cfg["shows"]]
+    assert client.put("/api/config", json=body).status_code == 200
+    assert "cooldown_days: 3\n" in main.state.settings.config_path.read_text()
+    body["version"] = client.get("/api/config").json()["version"]
+    body["cooldown_days"] = -1
+    assert client.put("/api/config", json=body).status_code == 400

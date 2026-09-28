@@ -61,6 +61,7 @@ class AppConfig:
     services: list[str] = field(default_factory=list)
     include_free: bool = True
     include_rent_buy: bool = True
+    cooldown_days: float = 14  # watched/skipped episodes sit out this long
     search_urls: dict[str, str] = field(default_factory=dict)
     shows: list[ShowConfig] = field(default_factory=list)
 
@@ -138,10 +139,18 @@ def parse_config(data: object) -> AppConfig:
             )
         )
 
+    try:
+        cooldown = float(data.get("cooldown_days", 14))
+    except (TypeError, ValueError) as e:
+        raise ConfigError(f"cooldown_days: {e}") from e
+    if cooldown < 0:
+        raise ConfigError("cooldown_days can't be negative")
+
     return AppConfig(
         services=list(dict.fromkeys(str(s).strip() for s in services if str(s).strip())),
         include_free=bool(data.get("include_free", True)),
         include_rent_buy=bool(data.get("include_rent_buy", True)),
+        cooldown_days=cooldown,
         search_urls=_str_map(data.get("search_urls"), "search_urls"),
         shows=shows,
     )
@@ -168,6 +177,7 @@ def dump_config(cfg: AppConfig) -> str:
         "services": list(cfg.services),
         "include_free": cfg.include_free,
         "include_rent_buy": cfg.include_rent_buy,
+        "cooldown_days": int(cfg.cooldown_days) if cfg.cooldown_days.is_integer() else cfg.cooldown_days,
     }
     if cfg.search_urls:
         data["search_urls"] = dict(cfg.search_urls)

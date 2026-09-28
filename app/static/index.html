@@ -31,18 +31,23 @@
         <h2 id="p-show"></h2>
         <p class="ep-line"><span id="p-code" class="code"></span> <span id="p-title"></span></p>
         <p id="p-overview" class="overview"></p>
+        <p id="p-history" class="history-note" hidden></p>
       </div>
     </article>
     <p id="p-tier" class="tier"></p>
     <div class="actions">
       <div id="watch-options" class="watch-options"></div>
       <div class="row">
-        <button id="other-show" class="btn" title="Pick from a different show in this channel">Different show</button>
-        <button id="same-show" class="btn" title="Another episode of this show">Another episode</button>
+        <button id="watched" class="btn" aria-pressed="false" title="Mark as watched: it won't come up again for a while">Mark watched</button>
+        <button id="skip" class="btn" title="Not this one: skip it for a while and reroll">Skip</button>
+      </div>
+      <div class="row">
+        <button id="other-show" class="btn compact" title="Pick from a different show in this channel">Different show</button>
+        <button id="same-show" class="btn compact" title="Another episode of this show">Another episode</button>
       </div>
       <div class="row">
         <button id="play" class="btn" hidden>Play on TV</button>
-        <button id="reroll" class="btn" title="Anything from this channel">Reroll</button>
+        <button id="reroll" class="btn compact" title="Anything from this channel">Reroll</button>
       </div>
     </div>
     <p id="play-status" class="notice" hidden></p>
@@ -77,6 +82,13 @@
       <input id="show-search" class="field" type="search" placeholder="Search TMDB to add a show…" autocomplete="off">
       <div id="search-results" class="pick-list"></div>
       <ul id="settings-shows" class="show-list"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>Watched &amp; skipped</h2>
+      <p class="hint">Episodes you mark <b>✓ Watched</b> or <b>Skip</b> won't be picked again for this many days.</p>
+      <label class="inline-field">Cooldown <input id="cooldown-days" class="field" type="number" min="0" step="1"> days</label>
+      <button id="clear-history" class="btn small">Clear watched &amp; skipped history</button>
     </section>
 
     <details class="panel">

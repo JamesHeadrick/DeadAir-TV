@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 from pathlib import Path
 
 import httpx
@@ -97,8 +98,19 @@ class ConfigIn(BaseModel):
     services: list[str]
     include_free: bool = True
     include_rent_buy: bool = True
+    cooldown_days: float = 14
     search_urls: dict[str, str] = {}
     shows: list[ShowIn]
+
+
+class EpisodeRef(BaseModel):
+    tmdb_id: int
+    season: int
+    episode: int
+
+
+class HistoryIn(EpisodeRef):
+    kind: Literal["watched", "skipped"]
 
 
 class PlayRequest(BaseModel):
@@ -200,7 +212,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             candidates = [s for s in watchable if s.tmdb_id == show]
         if not candidates:
             raise HTTPException(404, "no other shows left in this channel")
-        result = pick_episode(state.db, candidates, exclude_episodes=skip_ep[-500:])
+        cooling = state.db.cooldown_keys(_cooldown_since())
+        result = pick_episode(state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling])
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
         picked, ep = result
@@ -218,7 +231,28 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "air_date": ep["air_date"],
             "runtime": ep["runtime"],
             "still_url": image_url(ep["still_path"]) or image_url(row["backdrop_path"] if row else None),
+            "history": _history(picked.tmdb_id, ep["season"], ep["episode"]),
         }
+
+    # --- watched / skipped --------------------------------------------------
+
+    @app.post("/api/history")
+    async def add_history(body: HistoryIn):
+        """Mark an episode watched or skipped; either puts it on cooldown."""
+        if current_config().find_show(body.tmdb_id) is None:
+            raise HTTPException(404, "unknown show")
+        state.db.add_history(body.tmdb_id, body.season, body.episode, body.kind)
+        return {"history": _history(body.tmdb_id, body.season, body.episode)}
+
+    @app.post("/api/history/unwatch")
+    async def unwatch(body: EpisodeRef):
+        """Undo a 'watched' mark made during the current cooldown window."""
+        state.db.undo_watched(body.tmdb_id, body.season, body.episode, _cooldown_since())
+        return {"history": _history(body.tmdb_id, body.season, body.episode)}
+
+    @app.delete("/api/history")
+    async def clear_history():
+        return {"deleted": state.db.clear_history()}
 
     @app.post("/api/play")
     async def play(req: PlayRequest):
@@ -276,6 +310,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "services": cfg.services,
             "include_free": cfg.include_free,
             "include_rent_buy": cfg.include_rent_buy,
+            "cooldown_days": cfg.cooldown_days,
             "search_urls": cfg.search_urls,
             "shows": shows,
         }
@@ -345,6 +380,18 @@ def _show_infos(shows: list[ShowConfig]) -> dict[int, dict]:
             "_watchable": access.watchable,
         }
     return out
+
+
+def _cooldown_since() -> float:
+    return time.time() - current_config().cooldown_days * 86400
+
+
+def _history(tmdb_id: int, season: int, episode: int) -> dict | None:
+    """Most recent watched/skipped mark, and whether it's still cooling down."""
+    row = state.db.last_history(tmdb_id, season, episode)
+    if row is None:
+        return None
+    return {"kind": row["kind"], "at": row["at"], "cooling_down": row["at"] >= _cooldown_since()}
 
 
 def _public(info: dict) -> dict:
