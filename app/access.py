@@ -64,6 +64,18 @@ def names_match(configured: str, provider_name: str) -> bool:
     return have.startswith(want) and "channel" not in have[len(want):]
 
 
+def _match_service(service: str, providers: list[dict]) -> tuple[dict | None, list[dict]]:
+    """The provider entry to show for one of your services, plus every variant of it.
+
+    An exact name match wins, so picking "Netflix" doesn't also surface
+    "Netflix Standard with Ads". Loose matching only kicks in when there's no
+    exact match (e.g. a hand-typed "Disney+"), and then yields one entry.
+    """
+    variants = [p for p in providers if names_match(service, p["provider_name"])]
+    exact = [p for p in variants if _norm(p["provider_name"]) == _norm(service)]
+    return (exact or variants or [None])[0], variants
+
+
 def _lookup(mapping: dict[str, str], provider_name: str) -> str | None:
     # Prefer an exact normalized match so "Max" doesn't claim "HBO Max" etc.
     for key, val in mapping.items():
@@ -122,11 +134,16 @@ def compute_access(
         return Access(checked=False)
 
     flatrate = providers.get("flatrate", [])
-    mine = []
+    mine, covered = [], set()
     for service in cfg.services:  # keep your ordering: first listed wins
-        mine += [p for p in flatrate if names_match(service, p["provider_name"])]
+        match, variants = _match_service(service, flatrate)
+        if match:
+            mine.append(match)
+        covered.update(p["provider_name"] for p in variants)
     mine = _dedupe(mine)
-    others = [p["provider_name"] for p in flatrate if p not in mine]
+    # Other subscription services carrying the show, minus tiers of ones you have
+    # (e.g. "Netflix Standard with Ads" when you have "Netflix").
+    others = [p["provider_name"] for p in flatrate if p["provider_name"] not in covered]
 
     tiers = [("subscription", mine)]
     if cfg.include_free:

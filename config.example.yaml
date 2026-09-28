@@ -1,9 +1,9 @@
 # Copy to config.yaml and edit.
 
-# The subscriptions you pay for, as TMDB/JustWatch names them. Matching is
-# loose (case/punctuation-insensitive, "Disney+" == "Disney Plus",
-# "Netflix" also matches "Netflix Standard with Ads"). The "All shows" page
-# lists the exact names TMDB reports for services you don't have.
+# The subscriptions you pay for, as TMDB/JustWatch names them (Settings lets
+# you pick from TMDB's list). An exact name match wins, so "Netflix" won't
+# also pull in "Netflix Standard with Ads". Without an exact match, a loose
+# one is tried ("Disney+" finds "Disney Plus").
 # The order here is the order you see watch options in.
 services:
   - Netflix

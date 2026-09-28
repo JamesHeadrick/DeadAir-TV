@@ -131,6 +131,24 @@ def test_access_prefers_my_subscriptions_in_my_order():
     assert a.options[0].logo_url.endswith("/w92/l.png")
 
 
+def test_access_exact_service_name_hides_other_tiers_of_it():
+    # You picked "Netflix" (no ads) from TMDB's list; the ad tier shouldn't show up too.
+    a = _access({"flatrate": _prov("Netflix", "Netflix Standard with Ads", "Hulu")}, services=["Netflix"])
+    assert [o.provider_name for o in a.options] == ["Netflix"]
+    assert a.other_subscriptions == ["Hulu"]  # the ad tier isn't "another service" either
+
+    # Picking the ads plan itself matches exactly too.
+    a = _access({"flatrate": _prov("Netflix", "Netflix Standard with Ads")}, services=["Netflix Standard with Ads"])
+    assert [o.provider_name for o in a.options] == ["Netflix Standard with Ads"]
+
+    # Hand-typed names with no exact match still work, as a single entry.
+    a = _access({"flatrate": _prov("Disney Plus", "Disney Plus Basic with Ads")}, services=["Disney+"])
+    assert [o.provider_name for o in a.options] == ["Disney Plus"]
+    a = _access({"flatrate": _prov("Paramount Plus Essential", "Paramount Plus Premium")}, services=["Paramount+"])
+    assert [o.provider_name for o in a.options] == ["Paramount Plus Essential"]
+    assert a.other_subscriptions == []
+
+
 def test_access_falls_back_to_free_then_rent_buy():
     a = _access({"flatrate": _prov("Max"), "free": _prov("Pluto TV"), "ads": _prov("Tubi TV")})
     assert a.tier == "free"

@@ -112,11 +112,14 @@ shows:
 
 - **Channels** are tags. Each tag becomes a channel button, and a show can
   have as many as you like.
-- **services** are matched loosely against TMDB provider names: case and
-  punctuation are ignored, `Disney+` matches `Disney Plus`, and `Netflix`
-  matches `Netflix Standard with Ads`. Add-on channels such as "HBO Max Amazon
-  Channel" don't count. The **All shows** page lists the exact names TMDB uses
-  for services you don't have, so you can copy them.
+- **services** are matched against TMDB provider names, ignoring case and
+  punctuation. An exact match wins. If you picked "Netflix", its other plans
+  (like "Netflix Standard with Ads") aren't shown as extra options. If there's
+  no exact match, a looser match is tried: a hand-typed `Disney+` finds
+  `Disney Plus`, and `Paramount+` finds `Paramount Plus Essential`. Add-on
+  channels sold through another store, such as "HBO Max Amazon Channel", never
+  count. Picking services in Settings uses TMDB's exact names, so you don't
+  have to worry about any of this.
 - **Open links**: TMDB tells you *which* services carry a show, but it doesn't
   give a link to the show inside each service. So **Open** goes to that
   service's search page for the show. A `links:` entry replaces the search page
