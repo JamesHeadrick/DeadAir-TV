@@ -283,6 +283,7 @@ main {
 .pick-row:disabled { cursor: default; opacity: .6; }
 .toggle { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin-top: 2px; }
+#settings-shows { margin-top: 12px; }
 .settings-show { flex-direction: column; }
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
 .settings-show .head .poster { width: 40px; }
