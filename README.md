@@ -35,7 +35,9 @@ the history in Settings.
   Shows you can't watch anywhere are skipped when picking and flagged in the UI.
 - An **All shows** page lists every show, where you can watch it, and which
   other services carry it.
-- One mobile-first dark page, no auth. Meant for LAN/VPN use only.
+- Username/password logins. **Admins** manage settings and users.
+  **Viewers** can pick episodes and keep their own watched/skipped history.
+- One mobile-first dark page.
 - Optional: **Play on TV** launches the link on a Chromecast with Google TV over ADB.
 
 ## Quick start (Raspberry Pi 5 / any Docker host)
@@ -49,8 +51,9 @@ sudo chown -R 1000:1000 config data         # container runs as uid 1000
 docker compose up -d --build
 ```
 
-Then open `http://<pi-ip>:8000` and tap **⚙** to pick your services and add
-shows. Each new show's episodes are fetched right away, which takes a few
+Then open `http://<pi-ip>:8000`. On the first visit you create the admin
+account; alternatively, set `ADMIN_USER`/`ADMIN_PASSWORD` in `.env` to create
+it at startup. Then tap **⚙** to pick your services and add shows. Each new show's episodes are fetched right away, which takes a few
 seconds per show.
 
 The image is built from `python:3.12-slim-bookworm`, which is multi-arch, so
@@ -61,7 +64,10 @@ building it on the Pi gives you an arm64 image with no extra steps.
 Add a Proxy Host that forwards to `http://<pi-ip>:8000`. If NPM is on the same
 Docker network, you can use `http://deadair-tv:8000` and drop the `ports:`
 mapping. No special settings are needed, and every URL in the app is relative.
-Put an Access List on it if the proxy is reachable from outside your LAN/VPN.
+Serve it over HTTPS (NPM + Let's Encrypt, or your VPN's TLS) if you can. The
+login cookie is marked HTTPS-only automatically when the request comes in over
+HTTPS. Over plain `http://` on a LAN it still works, but the cookie is sent
+unencrypted.
 
 ## Configuration
 
@@ -154,11 +160,32 @@ watch option's link. The server builds the URL itself; the browser never
 supplies it. Exact `links:` deep links work best, because many TV apps ignore
 search URLs.
 
+## Accounts
+
+- **First run**: the first visitor creates the admin account, unless
+  `ADMIN_USER`/`ADMIN_PASSWORD` already created one. If the app is reachable
+  by others before you've done this, set the env vars instead.
+- **Settings → Users** (admins): add users as admin or viewer, switch roles,
+  reset passwords, and delete users. You can't delete yourself or demote the
+  last admin.
+- **Settings → Account** (everyone): change your password (this logs out your
+  other devices) or log out.
+- Each person's **✓ Watched / Skip** history and cooldowns are their own.
+  History recorded before logins existed goes to the first admin.
+- Sessions last 30 days. Passwords are hashed with scrypt. After 10 failed
+  logins from one IP within 15 minutes, logins from that IP are blocked for a
+  while.
+- **Locked out?** Reset a password (or create a new admin) from the command line:
+
+  ```sh
+  docker compose exec deadair-tv python -m app.manage list-users
+  docker compose exec deadair-tv python -m app.manage set-password james --admin
+  ```
+
 ## Roadmap
 
-- **v2: logins.** There's no auth today: anyone who can reach the app can
-  change its settings. That's fine for LAN/VPN use, but per-user logins (and
-  maybe per-user services and channels) would be the next step.
+- **Per-user services/channels**: right now shows, channels and services are
+  shared by everyone; only watch history is per person.
 
 ## Development
 

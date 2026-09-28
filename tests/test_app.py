@@ -287,6 +287,8 @@ def client(tmp_path):
     settings = Settings(config_path=cfg, db_path=tmp_path / "t.db", enable_adb=True, tv_ip="10.0.0.5")
     app = main.create_app(settings, start_sync=False)
     with TestClient(app) as c:
+        r = c.post("/api/auth/setup", json={"username": "admin", "password": "correct horse"})
+        assert r.status_code == 200, r.text
         db = main.state.db
         db.replace_episodes(_show(1), _eps(1, 1, 3))
         db.replace_episodes(_show(2), _eps(2, 1, 3))
@@ -498,3 +500,135 @@ def test_cooldown_days_in_config(client):
     body["version"] = client.get("/api/config").json()["version"]
     body["cooldown_days"] = -1
     assert client.put("/api/config", json=body).status_code == 400
+
+
+# --- auth --------------------------------------------------------------------
+
+from app import auth  # noqa: E402
+
+
+def test_password_hashing():
+    h = auth.hash_password("hunter22!")
+    assert h.startswith("scrypt$") and "hunter22" not in h
+    assert auth.verify_password("hunter22!", h)
+    assert not auth.verify_password("hunter23!", h)
+    assert not auth.verify_password("x", "garbage")
+    assert auth.hash_password("same") != auth.hash_password("same")  # salted
+
+
+def test_api_requires_login(client):
+    client.post("/api/auth/logout")
+    assert client.get("/api/channels").status_code == 401
+    assert client.get("/api/pick", params={"channel": "sitcom"}).status_code == 401
+    assert client.get("/healthz").status_code == 200
+    assert client.get("/").status_code == 200
+    status = client.get("/api/auth/status").json()
+    assert status == {"user": None, "needs_setup": False}
+    # Setup only works on an empty install.
+    assert client.post("/api/auth/setup", json={"username": "x", "password": "12345678"}).status_code == 409
+
+
+def test_login_logout_and_throttle(client, monkeypatch):
+    client.post("/api/auth/logout")
+    r = client.post("/api/auth/login", json={"username": "ADMIN", "password": "correct horse"})
+    assert r.status_code == 200 and r.json()["user"]["is_admin"]  # usernames are case-insensitive
+    assert "httponly" in r.headers["set-cookie"].lower() and "samesite=lax" in r.headers["set-cookie"].lower()
+    assert client.get("/api/channels").status_code == 200
+    client.post("/api/auth/logout")
+    assert client.get("/api/channels").status_code == 401
+
+    monkeypatch.setattr(main, "throttle", auth.LoginThrottle(max_failures=2))
+    bad = {"username": "admin", "password": "nope-nope"}
+    assert client.post("/api/auth/login", json=bad).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "ghost", "password": "x"}).status_code == 401
+    good = {"username": "admin", "password": "correct horse"}
+    assert client.post("/api/auth/login", json=good).status_code == 429
+
+
+def _login_as(client, username, password):
+    client.post("/api/auth/logout")
+    r = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+
+
+def test_viewer_role_and_per_user_history(client):
+    r = client.post("/api/users", json={"username": "kid", "password": "kidpass123"})
+    assert r.status_code == 200 and r.json()["user"]["is_admin"] is False
+    assert client.post("/api/users", json={"username": "Kid", "password": "kidpass123"}).status_code == 409
+    assert client.post("/api/users", json={"username": "x", "password": "short"}).status_code == 400
+
+    # Admin marks episodes 1 and 2 of show 1 (the only show in "short").
+    for ep in (1, 2):
+        client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": ep, "kind": "watched"})
+    assert {client.get("/api/pick", params={"channel": "short"}).json()["episode"] for _ in range(10)} == {3}
+
+    _login_as(client, "kid", "kidpass123")
+    # The viewer's cooldowns are their own.
+    assert {client.get("/api/pick", params={"channel": "short"}).json()["episode"] for _ in range(40)} == {1, 2, 3}
+    assert client.delete("/api/history").json()["deleted"] == 0
+    # ...and they can't touch settings or users.
+    for method, url in [("get", "/api/config"), ("put", "/api/config"), ("get", "/api/users"),
+                        ("get", "/api/tmdb/search?q=x"), ("get", "/api/tmdb/providers"), ("post", "/api/refresh")]:
+        assert getattr(client, method)(url).status_code in (403, 422), url
+    assert client.request("PUT", "/api/config", json={"version": "x", "services": [], "shows": []}).status_code == 403
+    assert client.get("/api/auth/status").json()["user"]["username"] == "kid"
+
+
+def test_user_admin_guards_and_password_change(client, tmp_path):
+    me = client.get("/api/auth/status").json()["user"]
+    assert client.delete(f"/api/users/{me['id']}").status_code == 400
+    assert client.patch(f"/api/users/{me['id']}", json={"is_admin": False}).status_code == 400  # last admin
+
+    kid = client.post("/api/users", json={"username": "kid", "password": "kidpass123"}).json()["user"]
+    assert client.patch(f"/api/users/{kid['id']}", json={"is_admin": True}).json()["user"]["is_admin"]
+    assert client.patch(f"/api/users/{me['id']}", json={"is_admin": False}).status_code == 200  # another admin exists
+    assert client.get("/api/users").status_code == 403  # demoted admins lose admin access immediately
+
+    # Password change: wrong current password rejected; other sessions are logged out.
+    other = TestClient(client.app)
+    _login_as(other, "kid", "kidpass123")
+    _login_as(client, "kid", "kidpass123")
+    assert client.post("/api/auth/password", json={"current_password": "nope", "new_password": "newpass123"}).status_code == 400
+    assert client.post("/api/auth/password", json={"current_password": "kidpass123", "new_password": "newpass123"}).status_code == 200
+    assert client.get("/api/channels").status_code == 200
+    assert other.get("/api/channels").status_code == 401
+    _login_as(client, "kid", "newpass123")
+
+    assert client.delete(f"/api/users/{me['id']}").status_code == 200
+    assert [u["username"] for u in client.get("/api/users").json()["users"]] == ["kid"]
+
+
+def test_admin_from_env_and_legacy_history_migration(tmp_path):
+    import sqlite3 as sq
+    dbp = tmp_path / "t.db"
+    conn = sq.connect(dbp)
+    conn.executescript(
+        "CREATE TABLE episode_history (id INTEGER PRIMARY KEY, tmdb_id INTEGER NOT NULL, season INTEGER NOT NULL,"
+        " episode INTEGER NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL);"
+        f"INSERT INTO episode_history VALUES (1, 1, 1, 1, 'watched', {time.time()});"
+    )
+    conn.commit()
+    conn.close()
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("")
+    settings = Settings(config_path=cfg, db_path=dbp, admin_user="boss", admin_password="bosspass1")
+    with TestClient(main.create_app(settings, start_sync=False)) as c:
+        assert c.get("/api/auth/status").json()["needs_setup"] is False
+        _login_as(c, "boss", "bosspass1")
+        users = main.state.db.list_users()
+        assert [(u["username"], u["is_admin"]) for u in users] == [("boss", 1)]
+        assert main.state.db.cooldown_keys(users[0]["id"], 0) == ["1:1:1"]
+
+
+def test_manage_set_password(tmp_path, monkeypatch):
+    from app import manage
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "t.db"))
+    answers = iter(["newpass123", "newpass123", "otherpass1", "otherpass1"])
+    monkeypatch.setattr(manage.getpass, "getpass", lambda prompt="": next(answers))
+    assert manage.main(["set-password", "rescue", "--admin"]) == 0
+    db = Database(tmp_path / "t.db")
+    u = db.get_user_by_name("rescue")
+    assert u["is_admin"] and auth.verify_password("newpass123", u["password_hash"])
+    assert manage.main(["set-password", "rescue"]) == 0  # existing user: password only
+    u = db.get_user_by_name("rescue")
+    assert u["is_admin"] and auth.verify_password("otherpass1", u["password_hash"])

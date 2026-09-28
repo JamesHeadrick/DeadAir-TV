@@ -1,4 +1,4 @@
-"""SQLite cache for TMDB show metadata, episodes and provider checks."""
+"""SQLite: TMDB cache (shows, episodes, providers), users/sessions, watch history."""
 
 from __future__ import annotations
 
@@ -43,6 +43,21 @@ CREATE TABLE IF NOT EXISTS episode_history (
     at      REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS episode_history_at ON episode_history (at);
+
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    is_admin      INTEGER NOT NULL DEFAULT 0,
+    created_at    REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
 
 
@@ -53,6 +68,12 @@ class Database:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(episode_history)")}
+            if "user_id" not in cols:  # history from before logins existed
+                conn.execute("ALTER TABLE episode_history ADD COLUMN user_id INTEGER")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS episode_history_user ON episode_history (user_id, at)"
+            )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -159,44 +180,124 @@ class Database:
             ).fetchone()
 
 
-    # --- history -----------------------------------------------------------
+    # --- history (per user) -------------------------------------------------
 
-    def add_history(self, tmdb_id: int, season: int, episode: int, kind: str) -> int:
+    def add_history(self, user_id: int, tmdb_id: int, season: int, episode: int, kind: str) -> int:
         with self.connect() as conn:
             cur = conn.execute(
-                "INSERT INTO episode_history (tmdb_id, season, episode, kind, at) VALUES (?, ?, ?, ?, ?)",
-                (tmdb_id, season, episode, kind, time.time()),
+                """INSERT INTO episode_history (user_id, tmdb_id, season, episode, kind, at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (user_id, tmdb_id, season, episode, kind, time.time()),
             )
             return cur.lastrowid
 
-    def undo_watched(self, tmdb_id: int, season: int, episode: int, since: float) -> None:
+    def undo_watched(self, user_id: int, tmdb_id: int, season: int, episode: int, since: float) -> None:
         """Remove recent 'watched' marks for an episode (the button toggles)."""
         with self.connect() as conn:
             conn.execute(
-                """DELETE FROM episode_history WHERE tmdb_id = ? AND season = ? AND episode = ?
-                   AND kind = 'watched' AND at >= ?""",
-                (tmdb_id, season, episode, since),
+                """DELETE FROM episode_history WHERE user_id = ? AND tmdb_id = ? AND season = ?
+                   AND episode = ? AND kind = 'watched' AND at >= ?""",
+                (user_id, tmdb_id, season, episode, since),
             )
 
-    def cooldown_keys(self, since: float) -> list[str]:
-        """Episode keys marked watched/skipped at or after ``since``."""
+    def cooldown_keys(self, user_id: int, since: float) -> list[str]:
+        """Episode keys this user marked watched/skipped at or after ``since``."""
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT DISTINCT tmdb_id, season, episode FROM episode_history WHERE at >= ?", (since,)
+                """SELECT DISTINCT tmdb_id, season, episode FROM episode_history
+                   WHERE user_id = ? AND at >= ?""",
+                (user_id, since),
             )
             return [episode_key(r["tmdb_id"], r["season"], r["episode"]) for r in rows]
 
-    def last_history(self, tmdb_id: int, season: int, episode: int) -> sqlite3.Row | None:
+    def last_history(self, user_id: int, tmdb_id: int, season: int, episode: int) -> sqlite3.Row | None:
         with self.connect() as conn:
             return conn.execute(
-                """SELECT kind, at FROM episode_history WHERE tmdb_id = ? AND season = ? AND episode = ?
+                """SELECT kind, at FROM episode_history
+                   WHERE user_id = ? AND tmdb_id = ? AND season = ? AND episode = ?
                    ORDER BY at DESC LIMIT 1""",
-                (tmdb_id, season, episode),
+                (user_id, tmdb_id, season, episode),
             ).fetchone()
 
-    def clear_history(self) -> int:
+    def clear_history(self, user_id: int) -> int:
         with self.connect() as conn:
-            return conn.execute("DELETE FROM episode_history").rowcount
+            return conn.execute("DELETE FROM episode_history WHERE user_id = ?", (user_id,)).rowcount
+
+    # --- users & sessions ------------------------------------------------------
+
+    def count_users(self) -> int:
+        with self.connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+    def count_admins(self) -> int:
+        with self.connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM users WHERE is_admin").fetchone()[0]
+
+    def create_user(self, username: str, password_hash: str, is_admin: bool) -> int:
+        """Raises sqlite3.IntegrityError if the username is taken."""
+        with self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
+                (username, password_hash, int(is_admin), time.time()),
+            )
+            if is_admin:
+                # The first admin inherits watch history recorded before logins existed.
+                conn.execute("UPDATE episode_history SET user_id = ? WHERE user_id IS NULL", (cur.lastrowid,))
+            return cur.lastrowid
+
+    def get_user(self, user_id: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+    def get_user_by_name(self, username: str) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+
+    def list_users(self) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall()
+
+    def update_user(self, user_id: int, *, password_hash: str | None = None, is_admin: bool | None = None) -> None:
+        with self.connect() as conn:
+            if password_hash is not None:
+                conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+            if is_admin is not None:
+                conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
+                if is_admin:
+                    conn.execute("UPDATE episode_history SET user_id = ? WHERE user_id IS NULL", (user_id,))
+
+    def delete_user(self, user_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM episode_history WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    def create_session(self, token_hash: str, user_id: int, ttl_s: float) -> None:
+        now = time.time()
+        with self.connect() as conn:
+            conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+            conn.execute(
+                "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+                (token_hash, user_id, now, now + ttl_s),
+            )
+
+    def session_user(self, token_hash: str) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute(
+                """SELECT u.id, u.username, u.is_admin FROM sessions s JOIN users u ON u.id = s.user_id
+                   WHERE s.token_hash = ? AND s.expires_at > ?""",
+                (token_hash, time.time()),
+            ).fetchone()
+
+    def delete_session(self, token_hash: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+    def delete_user_sessions(self, user_id: int, except_hash: str | None = None) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash IS NOT ?", (user_id, except_hash)
+            )
 
 
 def episode_key(tmdb_id: int, season: int, episode: int) -> str:

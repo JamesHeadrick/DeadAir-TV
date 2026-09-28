@@ -29,6 +29,10 @@ class Settings:
     enable_adb: bool = False
     tv_ip: str = ""
     adb_port: int = 5555
+    # Creates the first admin at startup if there are no users yet. Without
+    # these, the first visitor is asked to create the admin account.
+    admin_user: str = ""
+    admin_password: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -42,6 +46,8 @@ class Settings:
             enable_adb=_env_bool("ENABLE_ADB"),
             tv_ip=os.environ.get("TV_IP", "").strip(),
             adb_port=int(os.environ.get("ADB_PORT", "5555")),
+            admin_user=os.environ.get("ADMIN_USER", "").strip(),
+            admin_password=os.environ.get("ADMIN_PASSWORD", ""),
         )
 
 

@@ -8,10 +8,14 @@ let currentChannel = null;
 let skippedShows = new Set();
 let seenEpisodes = [];
 let current = null;
+let me = null; // { id, username, is_admin }
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401 && !path.startsWith("api/auth/")) {
+    showLogin(false); // session expired or logged out elsewhere
+  }
   if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
   return body;
 }
@@ -29,10 +33,74 @@ function showNotice(node, msg, isError = false) {
 }
 
 function showView(name) {
-  for (const v of ["channels", "pick", "shows", "settings"]) $(`${v}-view`).hidden = v !== name;
-  $("back").hidden = name === "channels";
-  $("shows-btn").hidden = name === "shows" || name === "settings";
-  $("settings-btn").hidden = name === "settings";
+  for (const v of ["login", "channels", "pick", "shows", "settings"]) $(`${v}-view`).hidden = v !== name;
+  $("back").hidden = name === "channels" || name === "login";
+  $("shows-btn").hidden = ["shows", "settings", "login"].includes(name);
+  $("settings-btn").hidden = name === "settings" || name === "login";
+}
+
+// --- login ------------------------------------------------------------------
+
+let setupMode = false;
+
+function showLogin(needsSetup) {
+  setupMode = needsSetup;
+  me = null;
+  showView("login");
+  $("login-title").textContent = needsSetup ? "Welcome! Create the admin account" : "Log in";
+  $("login-hint").textContent = needsSetup
+    ? "This account can change settings and add other users."
+    : "";
+  $("login-hint").hidden = !needsSetup;
+  $("login-confirm-wrap").hidden = !needsSetup;
+  $("login-pass2").required = needsSetup;
+  $("login-pass").autocomplete = needsSetup ? "new-password" : "current-password";
+  $("login-submit").textContent = needsSetup ? "Create account" : "Log in";
+  showNotice($("login-error"), "");
+  $("login-user").focus();
+}
+
+function setMe(user) {
+  me = user;
+  document.body.classList.toggle("viewer", !user.is_admin);
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  const username = $("login-user").value.trim();
+  const password = $("login-pass").value;
+  if (setupMode && password !== $("login-pass2").value) {
+    return showNotice($("login-error"), "Passwords don't match.", true);
+  }
+  $("login-submit").disabled = true;
+  try {
+    const { user } = await api(setupMode ? "api/auth/setup" : "api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    $("login-form").reset();
+    setMe(user);
+    showView("channels");
+    loadChannels();
+  } catch (err) {
+    showNotice($("login-error"), err.message, true);
+  } finally {
+    $("login-submit").disabled = false;
+  }
+}
+
+async function boot() {
+  try {
+    const status = await api("api/auth/status");
+    if (!status.user) return showLogin(status.needs_setup);
+    setMe(status.user);
+  } catch (e) {
+    showView("channels");
+    return showNotice($("notice"), `Couldn't reach the server: ${e.message}`, true);
+  }
+  showView("channels");
+  loadChannels();
 }
 
 // --- channels ---------------------------------------------------------------
@@ -43,7 +111,10 @@ async function loadChannels() {
     adbEnabled = data.adb_enabled;
     $("channels").replaceChildren(...data.channels.map(channelButton));
     if (!data.channels.length) {
-      $("channels").replaceChildren(el("p", { className: "notice", textContent: "No channels yet. Add some shows in Settings (⚙)." }));
+      $("channels").replaceChildren(el("p", {
+        className: "notice",
+        textContent: me?.is_admin ? "No channels yet. Add some shows in Settings (⚙)." : "No channels yet. Ask an admin to add some shows.",
+      }));
     }
     const problems = [
       data.config_error && `config.yaml has an error, using the last good version: ${data.config_error}`,
@@ -298,5 +369,6 @@ $("back").addEventListener("click", () => {
   loadChannels();
 });
 
-showView("channels");
-loadChannels();
+$("login-form").addEventListener("submit", submitLogin);
+
+boot();

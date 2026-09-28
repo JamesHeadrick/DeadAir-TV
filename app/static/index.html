@@ -18,7 +18,24 @@
 </header>
 
 <main>
-  <section id="channels-view">
+  <section id="login-view" hidden>
+    <form id="login-form" class="panel login-panel">
+      <h2 id="login-title">Log in</h2>
+      <p id="login-hint" class="hint"></p>
+      <label for="login-user">Username</label>
+      <input id="login-user" class="field" autocomplete="username" autocapitalize="none" required>
+      <label for="login-pass">Password</label>
+      <input id="login-pass" class="field" type="password" autocomplete="current-password" required>
+      <div id="login-confirm-wrap" hidden>
+        <label for="login-pass2">Confirm password</label>
+        <input id="login-pass2" class="field" type="password" autocomplete="new-password">
+      </div>
+      <p id="login-error" class="notice error" hidden></p>
+      <button id="login-submit" class="btn primary" type="submit">Log in</button>
+    </form>
+  </section>
+
+  <section id="channels-view" hidden>
     <div id="channels" class="channel-grid" aria-live="polite"></div>
     <p id="notice" class="notice" hidden></p>
   </section>
@@ -62,6 +79,20 @@
     <p id="settings-error" class="notice error" hidden></p>
 
     <section class="panel">
+      <h2>Account</h2>
+      <p class="hint">Signed in as <b id="me-name"></b><span id="me-role"></span>.</p>
+      <details>
+        <summary>Change password</summary>
+        <form id="password-form" class="stack">
+          <input id="pw-current" class="field" type="password" placeholder="Current password" autocomplete="current-password" required>
+          <input id="pw-new" class="field" type="password" placeholder="New password (8+ characters)" autocomplete="new-password" minlength="8" required>
+          <button class="btn small" type="submit">Change password</button>
+        </form>
+      </details>
+      <button id="logout" class="btn small">Log out</button>
+    </section>
+
+    <section class="panel admin-only">
       <h2>Your services</h2>
       <p class="hint">Subscriptions you pay for. When a show is on several, the one listed first is shown first.</p>
       <div id="my-service-chips" class="chips big"></div>
@@ -69,7 +100,7 @@
       <div id="provider-list" class="pick-list"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel admin-only">
       <h2>Where to watch</h2>
       <p class="hint">Your services always come first. If a show isn't on any of them:</p>
       <label class="toggle"><input type="checkbox" id="include-free"> Also use free / with-ads services (Tubi, Pluto TV…)</label>
@@ -77,7 +108,7 @@
       <p class="hint">Shows with nowhere left to watch are skipped when picking.</p>
     </section>
 
-    <section class="panel">
+    <section class="panel admin-only">
       <h2>Shows</h2>
       <input id="show-search" class="field" type="search" placeholder="Search TMDB to add a show…" autocomplete="off">
       <div id="search-results" class="pick-list"></div>
@@ -86,12 +117,27 @@
 
     <section class="panel">
       <h2>Watched &amp; skipped</h2>
-      <p class="hint">Episodes you mark <b>✓ Watched</b> or <b>Skip</b> won't be picked again for this many days.</p>
-      <label class="inline-field">Cooldown <input id="cooldown-days" class="field" type="number" min="0" step="1"> days</label>
-      <button id="clear-history" class="btn small">Clear watched &amp; skipped history</button>
+      <p class="hint">Episodes you mark <b>✓ Watched</b> or <b>Skip</b> won't be picked again <span id="cooldown-text">for a while</span>. Everyone has their own history.</p>
+      <label class="inline-field admin-only">Cooldown <input id="cooldown-days" class="field" type="number" min="0" step="1"> days</label>
+      <button id="clear-history" class="btn small">Clear my history</button>
     </section>
 
-    <details class="panel">
+    <section class="panel admin-only">
+      <h2>Users</h2>
+      <p class="hint">Admins can change settings and manage users. Viewers can pick episodes and keep their own watched history.</p>
+      <ul id="user-list" class="user-list"></ul>
+      <details>
+        <summary>Add a user</summary>
+        <form id="add-user-form" class="stack">
+          <input id="new-user" class="field" placeholder="Username" autocapitalize="none" required>
+          <input id="new-pass" class="field" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" minlength="8" required>
+          <label class="toggle"><input type="checkbox" id="new-admin"> Admin</label>
+          <button class="btn small" type="submit">Add user</button>
+        </form>
+      </details>
+    </section>
+
+    <details class="panel admin-only">
       <summary><h2>Search links</h2></summary>
       <p class="hint">"Open" uses these to search a service for the show. <code>{q}</code> is replaced by the show name. Add entries for services that aren't built in, or override a built-in link.</p>
       <div id="search-url-rows"></div>

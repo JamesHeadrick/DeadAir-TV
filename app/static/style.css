@@ -316,6 +316,20 @@ main {
 .inline-field { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .inline-field .field { width: 90px; }
 
+.login-panel { max-width: 420px; margin: 24px auto; display: flex; flex-direction: column; gap: 8px; }
+.login-panel h2 { display: block; }
+.login-panel label { font-size: .85rem; color: var(--muted); margin-top: 4px; }
+.login-panel .btn { margin-top: 8px; }
+body.viewer .admin-only { display: none !important; }
+.stack { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.panel details summary { cursor: pointer; color: var(--accent); margin: 8px 0; }
+.panel > .btn.small { margin-top: 8px; }
+.user-list { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.user-list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.user-list .grow { flex: 1; min-width: 120px; }
+.user-list small { color: var(--muted); }
+.user-list .btn.small { min-height: 34px; padding: 0 10px; font-size: .85rem; background: var(--bg); }
+
 .notice { color: var(--muted); text-align: center; }
 .notice.error { color: var(--warn-text); }
 

@@ -29,6 +29,17 @@ function settingsCanLeave() {
 async function openSettings() {
   showView("settings");
   showNotice($("settings-error"), "");
+  $("me-name").textContent = me.username;
+  $("me-role").textContent = me.is_admin ? " (admin)" : "";
+  draft = null;
+  $("save-bar").hidden = true;
+  if (!me.is_admin) {
+    api("api/channels").then((d) => {
+      $("cooldown-text").textContent = `for ${d.cooldown_days} days`;
+    }).catch(() => {});
+    return;
+  }
+  loadUsers();
   try {
     draft = await api("api/config");
     savedJson = JSON.stringify(stripped(draft));
@@ -46,6 +57,7 @@ async function openSettings() {
 }
 
 function changed() {
+  if (!draft) return;
   if ($("settings-error").classList.contains("error") && !draft.config_error) showNotice($("settings-error"), "");
   $("save-bar").hidden = !isDirty();
   $("save-status").textContent = "Unsaved changes";
@@ -56,6 +68,7 @@ function renderSettings() {
   $("include-free").checked = draft.include_free;
   $("include-rent-buy").checked = draft.include_rent_buy;
   $("cooldown-days").value = draft.cooldown_days;
+  $("cooldown-text").textContent = "for the number of days below";
   renderShows();
   renderSearchUrls();
   changed();
@@ -334,6 +347,85 @@ async function save() {
   }
 }
 
+// --- account & users ------------------------------------------------------------
+
+async function changePassword(e) {
+  e.preventDefault();
+  try {
+    await api("api/auth/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: $("pw-current").value, new_password: $("pw-new").value }),
+    });
+    $("password-form").reset();
+    showNotice($("settings-error"), "Password changed. Other devices have been logged out.");
+  } catch (err) {
+    showNotice($("settings-error"), `Couldn't change password: ${err.message}`, true);
+  }
+}
+
+async function logout() {
+  if (!settingsCanLeave()) return;
+  draft = null;
+  await api("api/auth/logout", { method: "POST" }).catch(() => {});
+  showLogin(false);
+}
+
+async function loadUsers() {
+  try {
+    const { users } = await api("api/users");
+    $("user-list").replaceChildren(...users.map(userRow));
+  } catch (e) {
+    $("user-list").replaceChildren(el("li", { className: "hint", textContent: e.message }));
+  }
+}
+
+async function userAction(fn, okMsg) {
+  try {
+    await fn();
+    if (okMsg) showNotice($("settings-error"), okMsg);
+  } catch (e) {
+    showNotice($("settings-error"), e.message, true);
+  }
+  loadUsers();
+}
+
+const jsonReq = (method, body) => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+function userRow(u) {
+  const self = u.id === me.id;
+  const role = el("button", { className: "btn small", textContent: u.is_admin ? "Make viewer" : "Make admin" });
+  role.addEventListener("click", () => userAction(
+    () => api(`api/users/${u.id}`, jsonReq("PATCH", { is_admin: !u.is_admin })),
+    `${u.username} is now ${u.is_admin ? "a viewer" : "an admin"}.`,
+  ).then(() => { if (self) location.reload(); }));
+  const reset = el("button", { className: "btn small", textContent: "Reset password" });
+  reset.addEventListener("click", () => {
+    const pw = prompt(`New password for ${u.username} (8+ characters):`);
+    if (pw) userAction(() => api(`api/users/${u.id}`, jsonReq("PATCH", { password: pw })), `Password for ${u.username} changed.`);
+  });
+  const del = el("button", { className: "btn small danger", textContent: "Delete" });
+  del.addEventListener("click", () => {
+    if (confirm(`Delete ${u.username} and their watch history?`)) {
+      userAction(() => api(`api/users/${u.id}`, { method: "DELETE" }), `Deleted ${u.username}.`);
+    }
+  });
+  return el("li", {},
+    el("span", { className: "grow" }, u.username, " ", el("small", { textContent: (u.is_admin ? "admin" : "viewer") + (self ? " · you" : "") })),
+    role, self ? null : reset, self ? null : del);
+}
+
+async function addUser(e) {
+  e.preventDefault();
+  const username = $("new-user").value.trim();
+  await userAction(async () => {
+    await api("api/users", jsonReq("POST", {
+      username, password: $("new-pass").value, is_admin: $("new-admin").checked,
+    }));
+    $("add-user-form").reset();
+  }, `Added ${username}.`);
+}
+
 // --- wiring -----------------------------------------------------------------
 
 $("settings-btn").addEventListener("click", () => settingsCanLeave() && openSettings());
@@ -353,7 +445,7 @@ $("cooldown-days").addEventListener("input", (e) => {
   if (d >= 0) { draft.cooldown_days = d; changed(); }
 });
 $("clear-history").addEventListener("click", async () => {
-  if (!confirm("Forget every watched and skipped episode?")) return;
+  if (!confirm("Forget every episode you've marked watched or skipped?")) return;
   try {
     const { deleted } = await api("api/history", { method: "DELETE" });
     showNotice($("settings-error"), `Cleared ${deleted} history entr${deleted === 1 ? "y" : "ies"}.`);
@@ -367,6 +459,9 @@ $("add-search-url").addEventListener("click", () => {
   changed();
 });
 $("save").addEventListener("click", save);
+$("password-form").addEventListener("submit", changePassword);
+$("logout").addEventListener("click", logout);
+$("add-user-form").addEventListener("submit", addUser);
 $("discard").addEventListener("click", () => {
   if (confirm("Discard unsaved changes?")) openSettings();
 });

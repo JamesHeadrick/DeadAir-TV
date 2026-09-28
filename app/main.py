@@ -5,19 +5,22 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Literal
 from pathlib import Path
 
 import httpx
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import adb
+from . import adb, auth
 from .access import Access, compute_access
 from .config import (
     AppConfig,
@@ -113,6 +116,66 @@ class HistoryIn(EpisodeRef):
     kind: Literal["watched", "skipped"]
 
 
+class Credentials(BaseModel):
+    username: str
+    password: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class NewUser(Credentials):
+    is_admin: bool = False
+
+
+class UserUpdate(BaseModel):
+    password: str | None = None
+    is_admin: bool | None = None
+
+
+@dataclass(frozen=True)
+class User:
+    id: int
+    username: str
+    is_admin: bool
+
+
+# /api routes reachable without logging in.
+PUBLIC_API = {"/api/auth/status", "/api/auth/login", "/api/auth/setup"}
+throttle = auth.LoginThrottle()
+
+
+def current_user(request: Request) -> User:
+    return request.state.user  # set by the auth middleware
+
+
+def admin_user(user: User = Depends(current_user)) -> User:
+    if not user.is_admin:
+        raise HTTPException(403, "admins only")
+    return user
+
+
+def _session_hash(request: Request) -> str | None:
+    token = request.cookies.get(auth.SESSION_COOKIE)
+    return auth.token_hash(token) if token else None
+
+
+def _start_session(request: Request, response: Response, user_id: int) -> None:
+    token, token_hash = auth.new_session_token()
+    ttl = auth.SESSION_DAYS * 86400
+    state.db.create_session(token_hash, user_id, ttl)
+    response.set_cookie(
+        auth.SESSION_COOKIE, token, max_age=int(ttl), httponly=True, samesite="lax",
+        secure=request.url.scheme == "https", path="/",
+    )
+
+
+def _user_json(u) -> dict:
+    return {"id": u["id"], "username": u["username"], "is_admin": bool(u["is_admin"])}
+
+
 class PlayRequest(BaseModel):
     tmdb_id: int
     provider_id: int | None = None  # which watch option; default = the first
@@ -125,6 +188,12 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     async def lifespan(app: FastAPI):
         state.settings = settings
         state.db = Database(settings.db_path)
+        if settings.admin_user and settings.admin_password and state.db.count_users() == 0:
+            problem = auth.validate_new_credentials(settings.admin_user, settings.admin_password)
+            if problem:
+                raise RuntimeError(f"ADMIN_USER/ADMIN_PASSWORD: {problem}")
+            state.db.create_user(settings.admin_user, auth.hash_password(settings.admin_password), True)
+            log.info("created admin user %r from ADMIN_USER", settings.admin_user)
         state.config = AppConfig()
         state.config_text = None  # force the first load
         state.syncer = None
@@ -148,6 +217,119 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             state.tmdb = None
 
     app = FastAPI(title="DeadAir TV", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        """Every /api route needs a valid session unless listed in PUBLIC_API."""
+        path = request.url.path
+        if path.startswith("/api/") and path not in PUBLIC_API:
+            token_hash = _session_hash(request)
+            row = state.db.session_user(token_hash) if token_hash else None
+            if row is None:
+                return JSONResponse({"detail": "not logged in"}, status_code=401)
+            request.state.user = User(row["id"], row["username"], bool(row["is_admin"]))
+        return await call_next(request)
+
+    # --- auth -----------------------------------------------------------------
+
+    @app.get("/api/auth/status")
+    async def auth_status(request: Request):
+        token_hash = _session_hash(request)
+        row = state.db.session_user(token_hash) if token_hash else None
+        return {
+            "user": _user_json(row) if row else None,
+            "needs_setup": state.db.count_users() == 0,
+        }
+
+    @app.post("/api/auth/setup")
+    async def auth_setup(body: Credentials, request: Request, response: Response):
+        """Create the first (admin) account. Only works while there are no users."""
+        if state.db.count_users() > 0:
+            raise HTTPException(409, "already set up - log in instead")
+        problem = auth.validate_new_credentials(body.username, body.password)
+        if problem:
+            raise HTTPException(400, problem)
+        user_id = state.db.create_user(body.username, auth.hash_password(body.password), True)
+        _start_session(request, response, user_id)
+        return {"user": _user_json(state.db.get_user(user_id))}
+
+    @app.post("/api/auth/login")
+    async def login(body: Credentials, request: Request, response: Response):
+        ip = request.client.host if request.client else "?"
+        if throttle.blocked(ip):
+            raise HTTPException(429, "too many failed logins - try again in a few minutes")
+        row = state.db.get_user_by_name(body.username.strip())
+        if not auth.check_login(body.password, row["password_hash"] if row else None):
+            throttle.failed(ip)
+            await asyncio.sleep(1)
+            raise HTTPException(401, "wrong username or password")
+        throttle.succeeded(ip)
+        _start_session(request, response, row["id"])
+        return {"user": _user_json(row)}
+
+    @app.post("/api/auth/logout")
+    async def logout(request: Request, response: Response):
+        token_hash = _session_hash(request)
+        if token_hash:
+            state.db.delete_session(token_hash)
+        response.delete_cookie(auth.SESSION_COOKIE, path="/")
+        return {"ok": True}
+
+    @app.post("/api/auth/password")
+    async def change_password(body: PasswordChange, request: Request, user: User = Depends(current_user)):
+        row = state.db.get_user(user.id)
+        if not auth.verify_password(body.current_password, row["password_hash"]):
+            raise HTTPException(400, "current password is wrong")
+        problem = auth.validate_new_credentials(user.username, body.new_password)
+        if problem:
+            raise HTTPException(400, problem)
+        state.db.update_user(user.id, password_hash=auth.hash_password(body.new_password))
+        state.db.delete_user_sessions(user.id, except_hash=_session_hash(request))  # log out other devices
+        return {"ok": True}
+
+    # --- users (admin) -------------------------------------------------------
+
+    @app.get("/api/users")
+    async def list_users(_: User = Depends(admin_user)):
+        return {"users": [_user_json(u) for u in state.db.list_users()]}
+
+    @app.post("/api/users")
+    async def create_user(body: NewUser, _: User = Depends(admin_user)):
+        problem = auth.validate_new_credentials(body.username, body.password)
+        if problem:
+            raise HTTPException(400, problem)
+        try:
+            user_id = state.db.create_user(body.username, auth.hash_password(body.password), body.is_admin)
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, f"username {body.username!r} is taken")
+        return {"user": _user_json(state.db.get_user(user_id))}
+
+    @app.patch("/api/users/{user_id}")
+    async def update_user(user_id: int, body: UserUpdate, me: User = Depends(admin_user)):
+        target = state.db.get_user(user_id)
+        if target is None:
+            raise HTTPException(404, "no such user")
+        if body.is_admin is False and target["is_admin"] and state.db.count_admins() == 1:
+            raise HTTPException(400, "can't demote the last admin")
+        password_hash = None
+        if body.password is not None:
+            problem = auth.validate_new_credentials(target["username"], body.password)
+            if problem:
+                raise HTTPException(400, problem)
+            password_hash = auth.hash_password(body.password)
+        state.db.update_user(user_id, password_hash=password_hash, is_admin=body.is_admin)
+        if password_hash and user_id != me.id:
+            state.db.delete_user_sessions(user_id)  # a reset password logs them out everywhere
+        return {"user": _user_json(state.db.get_user(user_id))}
+
+    @app.delete("/api/users/{user_id}")
+    async def delete_user(user_id: int, me: User = Depends(admin_user)):
+        if user_id == me.id:
+            raise HTTPException(400, "you can't delete your own account")
+        if state.db.get_user(user_id) is None:
+            raise HTTPException(404, "no such user")
+        state.db.delete_user(user_id)
+        return {"ok": True}
 
     @app.get("/", include_in_schema=False)
     async def index():
@@ -179,6 +361,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "adb_enabled": state.settings.enable_adb and bool(state.settings.tv_ip),
             "sync_error": state.syncer.last_error if state.syncer else "TMDB_API_KEY not set",
             "config_error": state.config_error,
+            "cooldown_days": current_config().cooldown_days,
         }
 
     @app.get("/api/shows")
@@ -190,6 +373,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     @app.get("/api/pick")
     async def pick(
         channel: str,
+        user: User = Depends(current_user),
         show: int | None = None,
         skip_show: list[int] = Query(default=[]),
         skip_ep: list[str] = Query(default=[]),
@@ -212,7 +396,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             candidates = [s for s in watchable if s.tmdb_id == show]
         if not candidates:
             raise HTTPException(404, "no other shows left in this channel")
-        cooling = state.db.cooldown_keys(_cooldown_since())
+        cooling = state.db.cooldown_keys(user.id, _cooldown_since())
         result = pick_episode(state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling])
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
@@ -231,28 +415,29 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "air_date": ep["air_date"],
             "runtime": ep["runtime"],
             "still_url": image_url(ep["still_path"]) or image_url(row["backdrop_path"] if row else None),
-            "history": _history(picked.tmdb_id, ep["season"], ep["episode"]),
+            "history": _history(user.id, picked.tmdb_id, ep["season"], ep["episode"]),
         }
 
     # --- watched / skipped --------------------------------------------------
 
     @app.post("/api/history")
-    async def add_history(body: HistoryIn):
-        """Mark an episode watched or skipped; either puts it on cooldown."""
+    async def add_history(body: HistoryIn, user: User = Depends(current_user)):
+        """Mark an episode watched or skipped; either puts it on cooldown (for you)."""
         if current_config().find_show(body.tmdb_id) is None:
             raise HTTPException(404, "unknown show")
-        state.db.add_history(body.tmdb_id, body.season, body.episode, body.kind)
-        return {"history": _history(body.tmdb_id, body.season, body.episode)}
+        state.db.add_history(user.id, body.tmdb_id, body.season, body.episode, body.kind)
+        return {"history": _history(user.id, body.tmdb_id, body.season, body.episode)}
 
     @app.post("/api/history/unwatch")
-    async def unwatch(body: EpisodeRef):
+    async def unwatch(body: EpisodeRef, user: User = Depends(current_user)):
         """Undo a 'watched' mark made during the current cooldown window."""
-        state.db.undo_watched(body.tmdb_id, body.season, body.episode, _cooldown_since())
-        return {"history": _history(body.tmdb_id, body.season, body.episode)}
+        state.db.undo_watched(user.id, body.tmdb_id, body.season, body.episode, _cooldown_since())
+        return {"history": _history(user.id, body.tmdb_id, body.season, body.episode)}
 
     @app.delete("/api/history")
-    async def clear_history():
-        return {"deleted": state.db.clear_history()}
+    async def clear_history(user: User = Depends(current_user)):
+        """Clears only your own watched/skipped history."""
+        return {"deleted": state.db.clear_history(user.id)}
 
     @app.post("/api/play")
     async def play(req: PlayRequest):
@@ -276,7 +461,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         return {"ok": True, "output": out}
 
     @app.post("/api/refresh")
-    async def refresh():
+    async def refresh(_: User = Depends(admin_user)):
         """Force a full TMDB re-sync in the background."""
         cfg = current_config()
         if state.syncer is None:
@@ -287,7 +472,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     # --- settings -----------------------------------------------------------
 
     @app.get("/api/config")
-    async def get_config():
+    async def get_config(_: User = Depends(admin_user)):
         cfg = current_config()
         rows = state.db.get_shows([s.tmdb_id for s in cfg.shows])
         shows = []
@@ -316,7 +501,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         }
 
     @app.put("/api/config")
-    async def put_config(body: ConfigIn):
+    async def put_config(body: ConfigIn, _: User = Depends(admin_user)):
         current_config()
         if body.version != content_version(state.config_text or ""):
             raise HTTPException(409, "config.yaml changed since you opened Settings - reload and try again")
@@ -334,7 +519,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         return {"ok": True, "version": content_version(text)}
 
     @app.get("/api/tmdb/search")
-    async def tmdb_search(q: str):
+    async def tmdb_search(q: str, _: User = Depends(admin_user)):
         if state.tmdb is None:
             raise HTTPException(503, "TMDB_API_KEY not set")
         q = q.strip()
@@ -346,7 +531,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             raise HTTPException(502, f"TMDB search failed: {e}")
 
     @app.get("/api/tmdb/providers")
-    async def tmdb_providers():
+    async def tmdb_providers(_: User = Depends(admin_user)):
         """All TV providers in your region, for picking your services."""
         if state.tmdb is None:
             raise HTTPException(503, "TMDB_API_KEY not set")
@@ -386,9 +571,9 @@ def _cooldown_since() -> float:
     return time.time() - current_config().cooldown_days * 86400
 
 
-def _history(tmdb_id: int, season: int, episode: int) -> dict | None:
-    """Most recent watched/skipped mark, and whether it's still cooling down."""
-    row = state.db.last_history(tmdb_id, season, episode)
+def _history(user_id: int, tmdb_id: int, season: int, episode: int) -> dict | None:
+    """Your most recent watched/skipped mark, and whether it's still cooling down."""
+    row = state.db.last_history(user_id, tmdb_id, season, episode)
     if row is None:
         return None
     return {"kind": row["kind"], "at": row["at"], "cooling_down": row["at"] >= _cooldown_since()}
