@@ -262,9 +262,10 @@ builds the image for arm64 and amd64:
   git tag v1.0.0 && git push origin v1.0.0
   ```
 
-The first time the image is published, the package is private. Make it
-public once under your GitHub profile → **Packages** → `deadair-tv` →
-**Package settings** → **Change visibility**.
+The package is linked to this repository, so it has the same visibility
+as the repo: this repo is public, so the image is public and anyone can
+pull it without logging in. Package settings live under your GitHub
+profile → **Packages** → `deadair-tv`.
 
 ## Attribution
 
