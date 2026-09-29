@@ -1,7 +1,10 @@
+# DeadAir - uses the prebuilt image (arm64 + amd64).
+#   docker compose up -d                      # first start
+#   docker compose pull && docker compose up -d   # update
+# To build from source instead, see docker-compose.build.yml.
 services:
   deadair-tv:
-    build: .
-    image: deadair-tv:latest
+    image: ghcr.io/jamesheadrick/deadair-tv:latest   # or :1 to stay on 1.x releases
     container_name: deadair-tv
     restart: unless-stopped
     env_file: .env

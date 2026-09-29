@@ -42,24 +42,41 @@ the history in Settings.
 - One mobile-first dark page.
 - Optional: **Play on TV** launches the link on a Chromecast with Google TV over ADB.
 
-## Quick start (Raspberry Pi 5 / any Docker host)
+## Quick start (Raspberry Pi / any Docker host)
+
+You need Docker and a free [TMDB API key](https://www.themoviedb.org/settings/api)
+of your own. The prebuilt image runs on arm64 (Raspberry Pi 4/5) and amd64.
+
+```sh
+mkdir deadair && cd deadair
+curl -fsSLO https://raw.githubusercontent.com/JamesHeadrick/DeadAir-TV/main/docker-compose.yml
+curl -fsSL  https://raw.githubusercontent.com/JamesHeadrick/DeadAir-TV/main/.env.example -o .env
+nano .env                                   # set TMDB_API_KEY
+mkdir -p config data && sudo chown -R 1000:1000 config data   # container runs as uid 1000
+docker compose up -d
+```
+
+Then open `http://<host>:8000`. On the first visit you create the admin
+account; alternatively, set `ADMIN_USER`/`ADMIN_PASSWORD` in `.env` to create
+it at startup. Then tap **⚙** to pick your services and add shows. Each new
+show's episodes are fetched right away, which takes a few seconds per show.
+
+**Updating:** `docker compose pull && docker compose up -d`. Your settings,
+users and history live in `config/` and `data/`, outside the container.
+`:latest` follows the main branch. To only get releases, change the image
+tag in `docker-compose.yml` to a version: `:1` gets every 1.x release, or pin
+an exact one like `:1.0.0`.
+
+### Building from source
 
 ```sh
 git clone https://github.com/JamesHeadrick/DeadAir-TV.git && cd DeadAir-TV
-cp .env.example .env                        # set TMDB_API_KEY
-mkdir -p config data
-cp config.example.yaml config/config.yaml   # optional: or start empty and use Settings
-sudo chown -R 1000:1000 config data         # container runs as uid 1000
-docker compose up -d --build
+cp .env.example .env && mkdir -p config data && sudo chown -R 1000:1000 config data
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-Then open `http://<pi-ip>:8000`. On the first visit you create the admin
-account; alternatively, set `ADMIN_USER`/`ADMIN_PASSWORD` in `.env` to create
-it at startup. Then tap **⚙** to pick your services and add shows. Each new show's episodes are fetched right away, which takes a few
-seconds per show.
-
-The image is built from `python:3.12-slim-bookworm`, which is multi-arch, so
-building it on the Pi gives you an arm64 image with no extra steps.
+The base image (`python:3.12-slim-bookworm`) is multi-arch, so building on a
+Pi gives you an arm64 image with no extra steps.
 
 ### Nginx Proxy Manager
 
@@ -209,6 +226,23 @@ pip install -r requirements-dev.txt
 pytest
 CONFIG_PATH=config/config.yaml DB_PATH=data/dev.db TMDB_API_KEY=... uvicorn app.main:app --reload
 ```
+
+### Releases
+
+GitHub Actions (`.github/workflows/docker.yml`) runs the tests and then
+builds the image for arm64 and amd64:
+
+- **Pull requests:** build only, nothing is published.
+- **Push to `main`:** publishes `ghcr.io/jamesheadrick/deadair-tv:latest`.
+- **Tag `vX.Y.Z`:** publishes `X.Y.Z`, `X.Y` and `X`. For example:
+
+  ```sh
+  git tag v1.0.0 && git push origin v1.0.0
+  ```
+
+The first time the image is published, the package is private. Make it
+public once under your GitHub profile → **Packages** → `deadair-tv` →
+**Package settings** → **Change visibility**.
 
 ## Attribution
 
