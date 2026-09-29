@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -18,7 +20,7 @@ import httpx
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -44,6 +46,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("deadair")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _render_index() -> str:
+    """index.html with a content hash on each static/ URL (static/app.js?v=3f9c...).
+
+    A changed file gets a new URL, so no browser or proxy cache can pair a new
+    page with old JS/CSS.
+    """
+    def versioned(m: re.Match) -> str:
+        file = STATIC_DIR / m.group(2)
+        if not file.is_file():
+            return m.group(0)
+        digest = hashlib.sha256(file.read_bytes()).hexdigest()[:10]
+        return f'{m.group(1)}static/{m.group(2)}?v={digest}"'
+
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return re.sub(r'((?:src|href)=")static/([\w.-]+)"', versioned, html)
 
 
 PROVIDER_LIST_TTL_S = 86400
@@ -349,9 +368,11 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         state.db.delete_user(user_id)
         return {"ok": True}
 
+    index_html = _render_index()
+
     @app.get("/", include_in_schema=False)
     async def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        return HTMLResponse(index_html)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

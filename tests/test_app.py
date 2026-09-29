@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import random
 import urllib.parse
 import time
@@ -818,5 +819,9 @@ def test_ui_files_are_revalidated(client):
     """Browsers must not run a stale app.js against a new index.html."""
     for path in ("/", "/static/app.js", "/static/style.css"):
         assert client.get(path).headers["cache-control"] == "no-cache", path
+    # The page links each file by a hash of its contents, so an update gets new URLs.
+    page = client.get("/").text
+    assert re.search(r'src="static/app\.js\?v=[0-9a-f]{10}"', page)
+    assert re.search(r'href="static/style\.css\?v=[0-9a-f]{10}"', page)
     etag = client.get("/static/app.js").headers["etag"]
     assert client.get("/static/app.js", headers={"If-None-Match": etag}).status_code == 304
