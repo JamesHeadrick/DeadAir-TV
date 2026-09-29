@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import sqlite3
@@ -498,6 +499,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "title": (row["name"] if row and row["name"] else None) or s.title,
                     "links": s.links,
                     "poster_url": image_url(row["poster_path"], "w185") if row else None,
+                    "watch": _watch_fallbacks(cfg, s, row),
                 }
             )
         return {
@@ -570,7 +572,7 @@ def _show_infos(shows: list[ShowConfig]) -> dict[int, dict]:
         row = rows.get(show.tmdb_id)
         name = show.name or (row["name"] if row and row["name"] else None) or show.title or f"TMDB #{show.tmdb_id}"
         providers = json.loads(row["providers_json"]) if row and row["providers_json"] else None
-        access: Access = compute_access(state.config, show, name, providers)
+        access: Access = compute_access(state.config, show, name, providers, _auto_links(row))
         out[show.tmdb_id] = {
             "tmdb_id": show.tmdb_id,
             "show_name": name,
@@ -594,6 +596,27 @@ def _history(user_id: int, tmdb_id: int, season: int, episode: int) -> dict | No
     if row is None:
         return None
     return {"kind": row["kind"], "at": row["at"], "cooling_down": row["at"] >= _cooldown_since()}
+
+
+def _watch_fallbacks(cfg: AppConfig, show: ShowConfig, row) -> list[dict]:
+    """Where the show is watchable for you, and what Open would use there
+    without a pasted link (for the Settings > Open links editor)."""
+    providers = json.loads(row["providers_json"]) if row and row["providers_json"] else None
+    name = show.name or (row["name"] if row and row["name"] else None) or show.title or f"TMDB #{show.tmdb_id}"
+    bare = dataclasses.replace(show, links={})
+    access = compute_access(cfg, bare, name, providers, _auto_links(row))
+    return [
+        {"provider_name": o.provider_name, "logo_url": o.logo_url, "fallback_url": o.url, "fallback_source": o.source}
+        for o in access.options
+    ]
+
+
+def _auto_links(row) -> dict[str, str]:
+    """Show-page links found on Wikidata for this show (service -> URL)."""
+    try:
+        return json.loads(row["links_json"] or "{}") if row else {}
+    except (KeyError, IndexError, ValueError):
+        return {}
 
 
 def _public(info: dict) -> dict:

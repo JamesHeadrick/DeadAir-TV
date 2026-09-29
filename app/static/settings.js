@@ -312,6 +312,85 @@ function emojiPicker(name, current) {
     el("div", { className: "emoji-custom" }, input, use, none));
 }
 
+// --- Open links (per show) ---------------------------------------------------------
+
+const normSvc = (n) => n.toLowerCase().replace(/\+/g, "plus").replace(/[^a-z0-9]/g, "");
+
+// The saved link key (if any) that belongs to a watch provider, e.g. "Hulu" for "Hulu".
+function linkKeyFor(show, providerName) {
+  const want = normSvc(providerName);
+  return Object.keys(show.links).find((k) => normSvc(k) === want)
+    || Object.keys(show.links).find((k) => { const n = normSvc(k); return n && (want.startsWith(n) || n.startsWith(want)); });
+}
+
+// Services where Open still lands on a search page (or TMDB) for this show.
+function searchOnlyServices(show) {
+  return (show.watch || [])
+    .filter((w) => !linkKeyFor(show, w.provider_name) && (w.fallback_source === "search" || w.fallback_source === "tmdb"))
+    .map((w) => w.provider_name);
+}
+
+function openLinksEditor(show, rerender) {
+  const watch = show.watch || [];
+  const claimed = new Set();
+  const rows = watch.map((w) => {
+    const key = linkKeyFor(show, w.provider_name);
+    if (key) claimed.add(key);
+    const input = el("input", {
+      className: "field", type: "url", autocomplete: "off", value: key ? show.links[key] : "",
+      placeholder: w.fallback_url.replace(/^https?:\/\/(www\.)?/, ""),
+      ariaLabel: `Link to ${showTitle(show)} on ${w.provider_name}`,
+    });
+    let current = key;
+    input.addEventListener("input", () => {
+      const v = input.value.trim();
+      if (current && current !== w.provider_name) delete show.links[current];
+      current = w.provider_name;
+      if (v) show.links[w.provider_name] = v;
+      else delete show.links[w.provider_name];
+      changed();
+    });
+    input.addEventListener("change", rerender); // done editing: refresh tags and the list marker
+    const tag = el("small", {
+      className: "link-source " + (key ? "manual" : w.fallback_source),
+      textContent: key ? "your link" : (w.fallback_source === "auto" ? "found automatically" : "search only"),
+    });
+    return el("div", { className: "open-link-row" },
+      el("div", { className: "open-link-head" },
+        w.logo_url ? el("img", { src: w.logo_url, alt: "" }) : null,
+        el("span", { textContent: w.provider_name }), tag),
+      input);
+  });
+
+  // Links saved for services this show isn't currently offered on (kept, editable).
+  const extras = Object.entries(show.links).filter(([k]) => !claimed.has(k));
+  const extraRows = extras.map(([svc, url]) => kvRow(svc, url, (k, v) => {
+    const entries = Object.entries(show.links).map(([a, b]) => (a === svc ? [k, v] : [a, b]));
+    show.links = Object.fromEntries(entries);
+    svc = k;
+    changed();
+  }, () => { delete show.links[svc]; rerender(); }, {
+    used: Object.keys(show.links).filter((k) => k !== svc),
+    placeholder: () => "https://… (link to this show in the app)",
+  }));
+  const addLink = el("button", { className: "btn small", textContent: "Add a link for another service" });
+  addLink.addEventListener("click", () => {
+    const svc = draft.services.find((s) => !(s in show.links)) || "";
+    show.links[svc] = "";
+    rerender();
+  });
+
+  return el("div", { className: "open-links" },
+    el("label", { textContent: "Open links" }),
+    el("p", { className: "hint", textContent: watch.length
+      ? "In the service's app, tap Share → Copy link on the show, then paste it here. Blank uses the link in grey."
+      : "Where-to-watch info shows up here once the show has been saved and synced." }),
+    ...rows,
+    extraRows.length ? el("p", { className: "hint", textContent: "Other services:" }) : null,
+    ...extraRows,
+    addLink);
+}
+
 function showRow(show) {
   const open = expanded.has(show.tmdb_id);
   const head = el("button", { className: "head", ariaExpanded: String(open) },
@@ -320,7 +399,10 @@ function showRow(show) {
       el("h3", { textContent: showTitle(show) }),
       show.channels.length
         ? el("p", { textContent: show.channels.join(" · ") + (show.weight !== 1 ? ` · weight ${show.weight}` : "") })
-        : el("p", { className: "warn-text", textContent: "Pick at least one channel" })),
+        : el("p", { className: "warn-text", textContent: "Pick at least one channel" }),
+      searchOnlyServices(show).length
+        ? el("p", { className: "search-only", textContent: `Opens a search on ${searchOnlyServices(show).join(", ")}` })
+        : null),
     el("span", { className: "tag", textContent: open ? "▲" : "▼" }));
   head.addEventListener("click", () => {
     open ? expanded.delete(show.tmdb_id) : expanded.add(show.tmdb_id);
@@ -363,21 +445,7 @@ function showEditor(show) {
   const name = el("input", { className: "field", placeholder: show.title || "", value: show.name || "" });
   name.addEventListener("input", () => { show.name = name.value.trim() || null; changed(); });
 
-  const links = el("div", {}, ...Object.entries(show.links).map(([svc, url]) => kvRow(svc, url, (k, v) => {
-    const entries = Object.entries(show.links).map(([a, b]) => (a === svc ? [k, v] : [a, b]));
-    show.links = Object.fromEntries(entries.filter(([a]) => a !== null));
-    svc = k;
-    changed();
-  }, () => { delete show.links[svc]; rerender(); }, {
-    used: Object.keys(show.links).filter((k) => k !== svc),
-    placeholder: () => "https://… (link to this show in the app)",
-  })));
-  const addLink = el("button", { className: "btn small", textContent: "Add deep link" });
-  addLink.addEventListener("click", () => {
-    const svc = draft.services.find((s) => !(s in show.links)) || "";
-    show.links[svc] = "";
-    rerender();
-  });
+  const links = openLinksEditor(show, rerender);
 
   const remove = el("button", { className: "btn small danger", textContent: "Remove show" });
   remove.addEventListener("click", () => {
@@ -391,8 +459,7 @@ function showEditor(show) {
     el("div", { className: "row2" },
       el("div", {}, el("label", { textContent: "Weight (1 = normal)" }), weight),
       el("div", {}, el("label", { textContent: "Display name" }), name)),
-    el("div", {},
-      el("label", { textContent: "Deep links (optional, used instead of search)" }), links, addLink),
+    links,
     remove);
 }
 
@@ -466,7 +533,7 @@ function validate() {
     return `Give these shows a channel: ${missing.map(showTitle).join(", ")}`;
   }
   const emptyLinks = draft.shows.filter((s) => Object.entries(s.links).some(([k, v]) => !k || !v));
-  if (emptyLinks.length) return `Fill in or remove the empty deep links on: ${emptyLinks.map(showTitle).join(", ")}`;
+  if (emptyLinks.length) return `Fill in or remove the empty Open links on: ${emptyLinks.map(showTitle).join(", ")}`;
   if (Object.entries(draft.search_urls).some(([k, v]) => !k || !v.includes("{q}"))) {
     return "Each search link needs a service name and a URL containing {q}.";
   }

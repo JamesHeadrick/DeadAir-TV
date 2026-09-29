@@ -117,7 +117,7 @@ Everything in `config.yaml` can be edited from the web UI:
 - **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
 - **Shows**: search TMDB by name to add a show. For each show you can edit its
   channel tags (pick an existing channel or type a new one), its weight, a
-  display name, and its deep links.
+  display name, and its Open links.
 - **Channels**: every channel in use, with an optional emoji (pick from
   suggestions or type your own), plus **Rename** and **Delete**, which apply
   to every show tagged with that channel. Renaming onto an existing channel
@@ -166,12 +166,24 @@ shows:
   channels sold through another store, such as "HBO Max Amazon Channel", never
   count. Picking services in Settings uses TMDB's exact names, so you don't
   have to worry about any of this.
-- **Open links**: TMDB tells you *which* services carry a show, but it doesn't
-  give a link to the show inside each service. So **Open** goes to that
-  service's search page for the show. A `links:` entry replaces the search page
-  with an exact deep link. If a service has no known search URL, Open falls
-  back to TMDB's "Where to watch" page. You can add search URLs with
-  `search_urls:` (see `config.example.yaml`).
+- **Open links**: TMDB tells you *which* services carry a show, but not where
+  the show lives inside each service. **Open** uses the best link it has:
+  1. **Your link:** pasted in Settings → the show → **Open links**, or `links:`
+     in `config.yaml`. In the service's app, tap **Share → Copy link** on the
+     show to get it.
+  2. **Found automatically:** the show's page on Netflix, Hulu, HBO Max,
+     Disney+, Peacock, Paramount+, Prime Video or Apple TV, looked up on
+     [Wikidata](https://www.wikidata.org) by the show's TMDB ID during the
+     weekly sync. Coverage is good for well-known shows. Turn it off with
+     `WIKIDATA_LINKS=false`.
+  3. **Search:** the service's search page for the show (you can add or
+     override these with `search_urls:`). Some apps, like Hulu and HBO Max,
+     ignore search links and open their home screen.
+  4. **TMDB's "Where to watch" page**, for services with no search link.
+
+  Links go to the show's page, not a specific episode: services don't publish
+  episode IDs. In Settings, shows that still open a search are marked, so you
+  can see which ones are worth pasting a link for.
 - `include_free: false` / `include_rent_buy: false` drop those tiers.
 - **Picking**: every aired episode (season 0 and unaired episodes excluded)
   has the same chance of being picked, among the shows you can watch. A show
@@ -196,6 +208,7 @@ next to it.
 | `TV_IP` | – | Chromecast IP |
 | `ADB_PORT` | `5555` | |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | – | create the first admin at startup (only when no users exist) |
+| `WIKIDATA_LINKS` | `true` | look up show-page links on Wikidata (see Open links) |
 | `PUID` / `PGID` | `1000` | user/group the app runs as; the `config` and `data` folders are handed to it on start |
 
 ## Phase 2: Play on TV (optional)

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import urllib.parse
 import time
 from collections import Counter
 
@@ -259,7 +260,15 @@ def test_sync_fetches_all_seasons_except_zero_and_providers(tmp_path):
     db = Database(tmp_path / "t.db")
     client = TMDBClient("abc123", transport=_fake_tmdb(requests))
     cfg = parse_config({"shows": [{"tmdb_id": 99, "channels": ["a"]}]})
-    syncer = Syncer(Settings(), db, client)
+    wd_requests = []
+
+    def wikidata(request):
+        wd_requests.append(request)
+        return httpx.Response(200, json={"results": {"bindings": [
+            {"tmdb": {"value": "99"}, "fmt": {"value": "https://www.hulu.com/series/$1"}, "id": {"value": "test-show-abc"}},
+        ]}})
+
+    syncer = Syncer(Settings(), db, client, wikidata_transport=httpx.MockTransport(wikidata))
 
     asyncio.run(syncer.run_once(cfg))
     assert syncer.last_error is None
@@ -275,10 +284,13 @@ def test_sync_fetches_all_seasons_except_zero_and_providers(tmp_path):
     assert providers["link"] == "https://tmdb/watch/99"
     assert providers["rent"] == []
 
+    assert json.loads(db.get_show(99)["links_json"]) == {"Hulu": "https://www.hulu.com/series/test-show-abc"}
+    assert len(wd_requests) == 1
+
     # Second run within the refresh windows does nothing.
     requests.clear()
     asyncio.run(syncer.run_once(cfg))
-    assert requests == []
+    assert requests == [] and len(wd_requests) == 1
 
 
 def test_bearer_token_auth():
@@ -719,3 +731,67 @@ def test_channel_emoji_api(client):
     assert chans["sitcom"]["emoji"] == "😂" and chans["short"]["emoji"] is None
     ep = client.get("/api/pick", params={"channel": "short"}).json()  # show 1 is on short + sitcom
     assert ep["channel_emoji"] == {"sitcom": "😂"}
+
+
+
+# --- show links from Wikidata ------------------------------------------------
+
+from app import wikidata  # noqa: E402
+
+
+def test_wikidata_parse_and_service_mapping():
+    rows = [
+        {"tmdb": {"value": "1400"}, "fmt": {"value": "https://www.netflix.com/title/$1"}, "id": {"value": "70153373"}},
+        {"tmdb": {"value": "1400"}, "fmt": {"value": "https://www.netflix.com/watch/$1"}, "id": {"value": "999"}},  # 2nd Netflix: first wins
+        {"tmdb": {"value": "1400"}, "fmt": {"value": "https://play.max.com/show/$1"}, "id": {"value": "abc"}},
+        {"tmdb": {"value": "615"}, "fmt": {"value": "https://www.hulu.com/series/$1"}, "id": {"value": "futurama-xyz"}},
+        {"tmdb": {"value": "615"}, "fmt": {"value": "https://example.com/$1"}, "id": {"value": "x"}},  # unknown service
+        {"tmdb": {"value": "oops"}, "fmt": {"value": "https://www.hulu.com/series/$1"}, "id": {"value": "x"}},
+    ]
+    assert wikidata.parse_bindings(rows) == {
+        1400: {"Netflix": "https://www.netflix.com/title/70153373", "HBO Max": "https://play.max.com/show/abc"},
+        615: {"Hulu": "https://www.hulu.com/series/futurama-xyz"},
+    }
+    assert wikidata.service_for_url("https://www.hbomax.com/series/x") == "HBO Max"
+    assert wikidata.service_for_url("https://notmax.com/x") is None
+
+
+def test_wikidata_fetch_batches_and_escapes():
+    seen = []
+
+    def handler(request: httpx.Request):
+        body = urllib.parse.parse_qs(request.content.decode())
+        seen.append(body["query"][0])
+        assert request.headers["user-agent"].startswith("DeadAir/")
+        return httpx.Response(200, json={"results": {"bindings": []}})
+
+    ids = list(range(1, wikidata.BATCH + 6))
+    assert asyncio.run(wikidata.fetch_show_links(ids, transport=httpx.MockTransport(handler))) == {}
+    assert len(seen) == 2  # batched
+    assert '"1" "2"' in seen[0] and f'"{wikidata.BATCH + 5}"' in seen[1]
+    # Dots in the domain regex reach SPARQL as \\. (a regex-escaped dot inside a string literal).
+    assert "netflix\\\\.com" in seen[0] and "themoviedb.org/tv/" in seen[0]
+
+
+def test_link_priority_manual_then_auto_then_search():
+    cfg = AppConfig(services=["Hulu", "Max", "Netflix"])
+    providers = {"flatrate": _prov("Hulu", "Max", "Netflix")}
+    auto = {"Hulu": "https://www.hulu.com/series/auto", "HBO Max": "https://play.max.com/show/auto"}
+    show = ShowConfig(7, ("x",), links={"Hulu": "https://www.hulu.com/series/mine"})
+    opts = {o.provider_name: o for o in compute_access(cfg, show, "Some Show", providers, auto).options}
+    assert (opts["Hulu"].url, opts["Hulu"].source) == ("https://www.hulu.com/series/mine", "manual")
+    assert (opts["Max"].url, opts["Max"].source) == ("https://play.max.com/show/auto", "auto")  # HBO Max link covers "Max"
+    assert opts["Netflix"].source == "search" and "search?q=Some+Show" in opts["Netflix"].url
+
+
+def test_config_api_reports_open_link_fallbacks(client):
+    db = main.state.db
+    db.set_auto_links({1: {"Netflix": "https://www.netflix.com/title/111"}}, [1, 2])
+    db.set_providers(2, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})
+    shows = {s["tmdb_id"]: s for s in client.get("/api/config").json()["shows"]}
+    # Show 1 has a pasted Netflix link; the fallback shown is what Open would use without it.
+    assert shows[1]["watch"] == [{"provider_name": "Netflix", "logo_url": None,
+                                  "fallback_url": "https://www.netflix.com/title/111", "fallback_source": "auto"}]
+    assert shows[2]["watch"][0]["fallback_source"] == "search"
+    ep = client.get("/api/pick", params={"channel": "short"}).json()
+    assert ep["access"]["options"][0]["source"] == "manual"  # the pasted link still wins on picks
