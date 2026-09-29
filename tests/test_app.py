@@ -879,6 +879,18 @@ def test_version_is_public(client, monkeypatch):
     assert '"commit":"1a3607a"' in res.text
 
 
+def test_icons_and_manifest_are_served(client):
+    page = client.get("/").text
+    for path in ("static/icon.svg", "static/apple-touch-icon.png", "static/manifest.webmanifest"):
+        assert re.search(rf'href="{re.escape(path)}\?v=[0-9a-f]{{10}}"', page), path
+    manifest = client.get("/static/manifest.webmanifest")
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    for icon in manifest.json()["icons"]:
+        assert client.get(f"/static/{icon['src']}").status_code == 200, icon["src"]
+    # Every <use href="#…"> points at an icon defined in the page's sprite.
+    assert set(re.findall(r'<use href="#([\w-]+)"', page)) <= set(re.findall(r'<symbol id="([\w-]+)"', page))
+
+
 def test_ui_files_are_revalidated(client):
     """Browsers must not run a stale app.js against a new index.html."""
     for path in ("/", "/static/app.js", "/static/style.css"):

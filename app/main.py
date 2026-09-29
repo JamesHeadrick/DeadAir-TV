@@ -7,6 +7,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import re
 import sqlite3
@@ -47,6 +48,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("deadair")
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Not in every system's MIME table (e.g. slim Docker images).
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 def _render_index() -> str:

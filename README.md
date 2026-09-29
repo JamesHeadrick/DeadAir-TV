@@ -348,5 +348,10 @@ from [game-icons.net](https://game-icons.net/), licensed under CC BY 3.0.
 In the app, all credits live on the **Credits** page, which is linked from
 the footer on every screen, including the login screen. The footer itself
 keeps only the JustWatch credit next to the "Credits" link. **Adding an
-icon?** Add a line for it to the icon list in the `credits-view` section of
-`app/static/index.html`.
+icon?** Add it as a `<symbol>` in the icon sprite at the top of `<body>` in
+`app/static/index.html`, use it with `<svg><use href="#id"/></svg>`, and add a
+line for it (with the icon) to the list in the `credits-view` section.
+
+The DeadAir TV icon (`app/static/icon.svg`) was made for this project. The
+home-screen PNGs are rendered from `tools/icon-full.svg` with
+`python tools/make_icons.py`.
