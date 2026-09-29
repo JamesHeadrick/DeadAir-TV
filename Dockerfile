@@ -24,6 +24,14 @@ ENV HOME=/data \
     CONFIG_PATH=/config/config.yaml \
     DB_PATH=/data/deadair.db
 
+# Build info shown on the Credits page (set by CI; "dev" for local builds).
+ARG APP_VERSION=dev
+ARG GIT_COMMIT=
+ARG BUILD_DATE=
+ENV APP_VERSION=$APP_VERSION \
+    GIT_COMMIT=$GIT_COMMIT \
+    BUILD_DATE=$BUILD_DATE
+
 EXPOSE 8000
 HEALTHCHECK --interval=60s --timeout=5s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')" || exit 1

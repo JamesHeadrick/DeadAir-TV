@@ -50,6 +50,25 @@ function openCredits(e) {
   viewBeforeCredits = currentView;
   showView("credits");
   window.scrollTo(0, 0);
+  loadVersion();
+}
+
+async function loadVersion() {
+  const node = $("app-version");
+  try {
+    const v = await api("api/version");
+    const parts = [v.version];
+    if (v.commit) {
+      parts.push(el("a", {
+        href: `https://github.com/JamesHeadrick/DeadAir-TV/commit/${v.commit_full}`,
+        target: "_blank", rel: "noopener", textContent: v.commit,
+      }));
+    }
+    if (v.built) parts.push(`built ${v.built.slice(0, 10)}`);
+    node.replaceChildren(...parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
+  } catch {
+    node.textContent = "Unknown";
+  }
 }
 
 // --- login ------------------------------------------------------------------

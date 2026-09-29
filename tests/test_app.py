@@ -795,3 +795,20 @@ def test_config_api_reports_open_link_fallbacks(client):
     assert shows[2]["watch"][0]["fallback_source"] == "search"
     ep = client.get("/api/pick", params={"channel": "short"}).json()
     assert ep["access"]["options"][0]["source"] == "manual"  # the pasted link still wins on picks
+
+
+def test_version_is_public(client, monkeypatch):
+    client.post("/api/auth/logout")
+    monkeypatch.delenv("APP_VERSION", raising=False)
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    monkeypatch.delenv("BUILD_DATE", raising=False)
+    assert client.get("/api/version").json() == {
+        "version": "dev", "commit": None, "commit_full": None, "built": None,
+    }
+    monkeypatch.setenv("APP_VERSION", "pr-3")
+    monkeypatch.setenv("GIT_COMMIT", "1a3607a0123456789abcdef0123456789abcdef0")
+    monkeypatch.setenv("BUILD_DATE", "2026-09-29T12:00:00Z")
+    res = client.get("/api/version")
+    assert res.json()["version"] == "pr-3"
+    # The CI smoke test greps for this exact compact form.
+    assert '"commit":"1a3607a"' in res.text

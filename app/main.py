@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -146,7 +147,7 @@ class User:
 
 
 # /api routes reachable without logging in.
-PUBLIC_API = {"/api/auth/status", "/api/auth/login", "/api/auth/setup"}
+PUBLIC_API = {"/api/auth/status", "/api/auth/login", "/api/auth/setup", "/api/version"}
 throttle = auth.LoginThrottle()
 
 
@@ -343,6 +344,17 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     @app.get("/healthz")
     async def healthz():
         return {"ok": True}
+
+    @app.get("/api/version")
+    async def version():
+        """Build info baked into the image by CI (see the Dockerfile's build args)."""
+        commit = os.environ.get("GIT_COMMIT", "").strip()
+        return {
+            "version": os.environ.get("APP_VERSION", "").strip() or "dev",
+            "commit": commit[:7] or None,
+            "commit_full": commit or None,
+            "built": os.environ.get("BUILD_DATE", "").strip() or None,
+        }
 
     @app.get("/api/channels")
     async def channels():
