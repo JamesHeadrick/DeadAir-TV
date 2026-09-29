@@ -35,7 +35,16 @@ function showNotice(node, msg, isError = false) {
 let currentView = null;
 let viewBeforeCredits = null;
 
+// Each screen change is a browser history entry, so the browser's back button
+// (or a back swipe) and the ← button both step back through the same screens.
+const ROOT_VIEWS = ["channels", "login"];
+let restoringView = false; // true while showing a view because of browser back/forward
+
 function showView(name) {
+  if (!restoringView && name !== currentView) {
+    if (ROOT_VIEWS.includes(name)) history.replaceState({ view: name, depth: 0 }, "");
+    else history.pushState({ view: name, depth: (history.state?.depth || 0) + 1 }, "");
+  }
   currentView = name;
   for (const v of ["login", "channels", "pick", "shows", "settings", "credits"]) $(`${v}-view`).hidden = v !== name;
   $("back").hidden = name === "channels" || name === "login";
@@ -252,17 +261,24 @@ function render(ep, error) {
     $("p-show").textContent = "Nothing to show";
     $("p-code").textContent = "";
     $("p-title").textContent = "";
-    $("p-overview").textContent = error || "";
+    setOverview(error || "");
     $("p-tier").textContent = "";
     $("watch-options").replaceChildren();
     still.removeAttribute("src");
     $("play").hidden = true;
     return;
   }
-  $("p-show").textContent = ep.show_name;
+  // Admins can jump straight to this show's settings (e.g. to add an Open link).
+  $("p-show").replaceChildren(me?.is_admin
+    ? el("button", {
+      className: "show-link", textContent: ep.show_name, title: "Edit this show",
+      onclick: () => loadShows(ep.tmdb_id),
+    })
+    : ep.show_name);
   $("p-code").textContent = ep.code;
   $("p-title").textContent = ep.title;
-  $("p-overview").textContent = ep.overview || "No synopsis available.";
+  $("p-title").title = ep.title; // the line is cut short with "…" when long
+  setOverview(ep.overview || "No synopsis available.");
   if (ep.still_url) {
     still.src = ep.still_url;
     still.alt = `${ep.show_name} ${ep.code}`;
@@ -275,19 +291,47 @@ function render(ep, error) {
   tier.className = "tier" + (access.tier === "rent_buy" ? " rent" : "");
   tier.replaceChildren(el("strong", { textContent: access.checked ? access.tier_label : "Checking where to watch…" }));
 
-  const opts = access.options.map((o, i) => {
-    const a = el("a", {
-      className: i === 0 ? "btn primary" : "btn secondary-option",
-      href: o.url,
-      target: "_blank",
-      rel: "noopener",
-    });
-    if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
-    a.append(el("span", { textContent: watchLabel(o) }));
-    return a;
-  });
-  $("watch-options").replaceChildren(...opts);
+  // The best option as the big button; the rest fold away under one line.
+  const [best, ...others] = access.options;
+  const more = el("details", { className: "more-ways" + (others.length ? "" : " none") },
+    el("summary", { textContent: `${others.length} other way${others.length === 1 ? "" : "s"} to watch` }),
+    el("div", { className: "more-ways-list" }, ...others.map((o) => watchButton(o, false))));
+  if (!others.length) more.setAttribute("aria-hidden", "true");
+  const main = best
+    ? watchButton(best, true)
+    : el("span", { className: "btn placeholder", textContent: access.checked ? "Nowhere to watch" : "Checking where to watch…" });
+  $("watch-options").replaceChildren(main, more);
   $("play").hidden = !adbEnabled || !access.options.length;
+}
+
+function watchButton(o, primary) {
+  const a = el("a", {
+    className: primary ? "btn primary" : "btn secondary-option",
+    href: o.url,
+    target: "_blank",
+    rel: "noopener",
+  });
+  if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
+  a.append(el("span", { textContent: watchLabel(o) }));
+  return a;
+}
+
+// Synopsis limited to 3 lines, with "Read more" only when it's actually cut off.
+function setOverview(text) {
+  const p = $("p-overview");
+  const more = $("p-more");
+  p.textContent = text;
+  p.classList.add("clamped");
+  more.textContent = "Read more";
+  more.setAttribute("aria-expanded", "false");
+  // Measure once it's laid out (the view may have only just been shown).
+  requestAnimationFrame(() => more.classList.toggle("unneeded", p.scrollHeight <= p.clientHeight + 1));
+}
+
+function toggleOverview() {
+  const expanded = $("p-overview").classList.toggle("clamped") === false;
+  $("p-more").textContent = expanded ? "Show less" : "Read more";
+  $("p-more").setAttribute("aria-expanded", String(expanded));
 }
 
 // Say what the button will do: show pages open the series, fallbacks only search.
@@ -393,7 +437,7 @@ async function playOnTv() {
     await api("api/play", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tmdb_id: current.tmdb_id }),
+      body: JSON.stringify({ tmdb_id: current.tmdb_id, season: current.season }),
     });
     showNotice($("play-status"), "Launched on TV.");
   } catch (e) {
@@ -405,7 +449,11 @@ async function playOnTv() {
 
 // --- all shows --------------------------------------------------------------
 
-async function loadShows() {
+let showsFrom = null; // the view All shows was opened from, for Back
+
+// focusId: open this show's editor and scroll to it.
+async function loadShows(focusId) {
+  if (!["shows", "credits"].includes(currentView)) showsFrom = currentView;
   showView("shows");
   showNotice($("shows-error"), "");
   const list = $("show-list");
@@ -415,11 +463,24 @@ async function loadShows() {
     $("my-services").textContent = services.length
       ? `Your services: ${services.join(", ")}`
       : "No services set up yet (Settings → Your services)";
-    if (me.is_admin) await openShowsEditor(shows); // settings.js: same list, editable
-    else list.replaceChildren(...shows.map(showItem));
+    if (me.is_admin) await openShowsEditor(shows, focusId); // settings.js: same list, editable
+    else list.replaceChildren(...[...shows].sort(byName((s) => s.show_name)).map(showItem));
   } catch (e) {
     list.replaceChildren(el("li", { className: "notice error", textContent: e.message }));
   }
+}
+
+// Alphabetical, ignoring case and accents.
+const byName = (key) => (a, b) => key(a).localeCompare(key(b), undefined, { sensitivity: "base" });
+
+// Back from All shows to a pick: refresh its watch buttons in case links changed.
+async function returnToPick() {
+  showView("pick");
+  if (!current) return;
+  try {
+    const { access } = await api(`api/access?tmdb_id=${current.tmdb_id}&season=${current.season}`);
+    render({ ...current, access });
+  } catch { /* keep the card as it was */ }
 }
 
 // Where-to-watch lines for a show: tier and channels, provider chips, other services.
@@ -438,7 +499,19 @@ function accessBits(a, channels) {
   if (a.other_subscriptions.length) {
     lines.push(el("p", { textContent: `Also on: ${a.other_subscriptions.join(", ")}` }));
   }
-  return [...lines, chips];
+  return [...lines, chips, ...seasonLines(a.by_season || [])];
+}
+
+// "S1–5: Netflix" / "S6–8: not on your services · skipped", when seasons differ.
+function seasonLines(groups) {
+  return groups.map((g) => {
+    const range = g.first === g.last ? `S${g.first}` : `S${g.first}–${g.last}`;
+    let where = g.providers.join(", ");
+    if (!g.tier) where = "not on your services · skipped";
+    else if (g.tier !== "subscription") where += ` (${g.tier_label.toLowerCase()})`;
+    return el("p", { className: "season-line" + (g.tier ? "" : " skipped") },
+      el("b", { textContent: `${range}: ` }), where);
+  });
 }
 
 function showItem(s) {
@@ -456,8 +529,10 @@ $("skip").addEventListener("click", skipEpisode);
 $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
 $("play").addEventListener("click", playOnTv);
-$("shows-btn").addEventListener("click", loadShows);
+$("p-more").addEventListener("click", toggleOverview);
+$("shows-btn").addEventListener("click", () => loadShows());
 $("back").addEventListener("click", () => {
+  if (history.state?.depth > 0) return history.back(); // handled by popstate below
   if (currentView === "credits") {
     // Return to where Credits was opened from (e.g. the login screen or a pick).
     const back = me ? viewBeforeCredits : "login";
@@ -466,10 +541,36 @@ $("back").addEventListener("click", () => {
     if (back && back !== "settings") return showView(back);
   }
   if (!settingsCanLeave()) return;
+  if (currentView === "shows" && showsFrom === "pick") return returnToPick();
   showView("channels");
   loadChannels();
 });
 $("credits-link").addEventListener("click", openCredits);
+
+// Browser back/forward (and the ← button, via history.back()).
+window.addEventListener("popstate", (e) => {
+  const target = e.state?.view || "channels";
+  if (target === currentView) return;
+  // Leaving Settings / All shows for anywhere but each other: ask about unsaved edits.
+  if (EDIT_VIEWS.includes(currentView) && !EDIT_VIEWS.includes(target) && !settingsCanLeave()) {
+    history.pushState({ view: currentView, depth: (e.state?.depth || 0) + 1 }, ""); // stay put
+    return;
+  }
+  restoringView = true;
+  try {
+    if (!me) return showLogin(setupMode);
+    if (target === "pick" && current) returnToPick();
+    else if (target === "shows") loadShows();
+    else if (target === "settings") openSettings();
+    else if (target === "credits") showView("credits");
+    else {
+      showView("channels");
+      loadChannels();
+    }
+  } finally {
+    restoringView = false; // each target shows its view before its first await
+  }
+});
 
 $("login-form").addEventListener("submit", submitLogin);
 

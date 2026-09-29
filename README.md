@@ -35,6 +35,10 @@ the history in Settings.
   3. **rent / buy** (only when there's nothing else)
 
   Shows you can't watch anywhere are skipped when picking and flagged in the UI.
+  This is checked per season too, when TMDB knows where each season streams:
+  if Netflix only has seasons 1–5, an episode from season 6 shows your next
+  option, or isn't picked if there's nowhere to watch it. All shows lists
+  these per season (e.g. *S1–5: Netflix*, *S6–8: not on your services*).
 - An **All shows** page lists every show, where you can watch it, and which
   other services carry it.
 - Username/password logins. **Admins** manage settings and users.
@@ -149,7 +153,8 @@ Viewers see the same list without the editing controls. Settings has the rest:
 
 - **Your services**: search TMDB's provider list for your region and tap to
   add, so the names always match what TMDB reports. The order they're listed
-  in is the order watch options are shown in.
+  in is the order watch options are shown in, except that services with a
+  link that opens the show come before ones that can only search for it.
 - **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
 - **Channels**: every channel in use, with an optional emoji (pick from
   suggestions or type your own), plus **Rename** and **Delete**, which apply
@@ -237,7 +242,7 @@ next to it.
 | `TMDB_API_KEY` | – | v3 API key or v4 read access token |
 | `WATCH_REGION` | `US` | provider region to check |
 | `EPISODE_REFRESH_DAYS` | `7` | |
-| `PROVIDER_CHECK_HOURS` | `24` | |
+| `PROVIDER_CHECK_HOURS` | `24` | how often to check where shows (and each of their seasons) stream |
 | `ENABLE_ADB` | `false` | phase 2, see below |
 | `TV_IP` | – | Chromecast IP |
 | `ADB_PORT` | `5555` | |

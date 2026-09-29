@@ -111,13 +111,15 @@ class TMDBClient:
             for p in results
         ]
 
-    async def fetch_providers(self, tmdb_id: int, region: str) -> dict:
-        """Watch providers for one region, grouped by type.
+    async def fetch_providers(self, tmdb_id: int, region: str, season: int | None = None) -> dict:
+        """Watch providers for one region, grouped by type, for the whole show
+        or (with ``season``) just that season.
 
         Returns {"link": <TMDB watch page>, "flatrate": [...], "free": [...],
         "ads": [...], "rent": [...], "buy": [...]}.
         """
-        data = await self._get(f"/tv/{tmdb_id}/watch/providers")
+        path = f"/tv/{tmdb_id}" + (f"/season/{season}" if season is not None else "")
+        data = await self._get(f"{path}/watch/providers")
         region_data = (data.get("results") or {}).get(region) or {}
         out: dict = {"link": region_data.get("link")}
         for kind in PROVIDER_TYPES:

@@ -15,6 +15,7 @@ def pick_episode(
     rng: random.Random | None = None,
     today: str | None = None,
     exclude_episodes: list[str] = (),
+    skip_seasons: list[str] = (),
 ) -> tuple[ShowConfig, dict] | None:
     """Pick one aired episode across ``shows``.
 
@@ -24,22 +25,23 @@ def pick_episode(
 
     ``exclude_episodes`` ("tmdb_id:season:episode" keys, e.g. ones already
     shown) are avoided. If that rules out everything, they're allowed again
-    rather than coming up empty.
+    rather than coming up empty. ``skip_seasons`` ("tmdb_id:season", seasons
+    with nowhere to watch them) are never picked.
     """
     rng = rng or random.Random()
     today = today or dt.date.today().isoformat()
     ids = [s.tmdb_id for s in shows]
 
-    counts = db.pickable_episode_counts(ids, today, exclude_episodes)
+    counts = db.pickable_episode_counts(ids, today, exclude_episodes, skip_seasons)
     if not any(counts.values()) and exclude_episodes:
         exclude_episodes = ()
-        counts = db.pickable_episode_counts(ids, today)
+        counts = db.pickable_episode_counts(ids, today, skip_seasons=skip_seasons)
     candidates = [(s, counts[s.tmdb_id]) for s in shows if counts.get(s.tmdb_id)]
     if not candidates:
         return None
 
     show, n = rng.choices(candidates, weights=[c * s.weight for s, c in candidates])[0]
-    row = db.nth_pickable_episode(show.tmdb_id, rng.randrange(n), today, exclude_episodes)
+    row = db.nth_pickable_episode(show.tmdb_id, rng.randrange(n), today, exclude_episodes, skip_seasons)
     if row is None:  # table changed between queries (refresh in progress)
         return None
     return show, dict(row)

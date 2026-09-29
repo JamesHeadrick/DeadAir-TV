@@ -1,4 +1,5 @@
-"""Background refresh of episodes and show links (weekly) and provider availability (daily)."""
+"""Background refresh of episodes and show links (weekly) and provider availability,
+per show and per season (daily)."""
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import time
 
 from .config import AppConfig, Settings
 from .db import Database
-from .tmdb import TMDBClient
+from .tmdb import PROVIDER_TYPES, TMDBClient
 from . import wikidata
 
 log = logging.getLogger("deadair.sync")
@@ -48,12 +49,14 @@ class Syncer:
                         self.last_error = f"episodes for {tmdb_id}: {e}"
                         log.warning("episode refresh failed for %s: %s", tmdb_id, e)
 
-                if force or self._stale(row and row["providers_checked_at"], prov_age, now):
+                never_checked_seasons = row is not None and row["season_providers_json"] is None
+                if force or never_checked_seasons or self._stale(row and row["providers_checked_at"], prov_age, now):
                     try:
                         providers = await self.client.fetch_providers(
                             tmdb_id, self.settings.watch_region
                         )
                         self.db.set_providers(tmdb_id, providers)
+                        await self._check_seasons(tmdb_id, providers)
                     except Exception as e:
                         self.last_error = f"providers for {tmdb_id}: {e}"
                         log.warning("provider check failed for %s: %s", tmdb_id, e)
@@ -69,6 +72,22 @@ class Syncer:
                         log.info("wikidata: show links for %d of %d shows", len(links), len(due))
                     except Exception as e:  # non-fatal: Open falls back to search
                         log.warning("wikidata lookup failed: %s", e)
+
+    async def _check_seasons(self, tmdb_id: int, providers: dict) -> None:
+        """Where each season streams, for services that only carry some seasons.
+
+        Skipped when the show isn't available anywhere. A season TMDB has no
+        data for is left out, so it falls back to the whole-show answer.
+        """
+        if not any(providers.get(k) for k in PROVIDER_TYPES):
+            self.db.set_season_providers(tmdb_id, {})
+            return
+        by_season = {}
+        for season in self.db.show_seasons([tmdb_id])[tmdb_id]:
+            found = await self.client.fetch_providers(tmdb_id, self.settings.watch_region, season=season)
+            if any(found.get(k) for k in PROVIDER_TYPES):
+                by_season[season] = found
+        self.db.set_season_providers(tmdb_id, by_season)
 
     async def loop(self, get_config) -> None:
         while True:
