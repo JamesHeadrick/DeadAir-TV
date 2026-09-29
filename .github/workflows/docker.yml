@@ -2,7 +2,8 @@
 # publishes it to GitHub Container Registry:
 #   - every push to main          -> ghcr.io/<owner>/<repo>:latest
 #   - a git tag like v1.2.3       -> :1.2.3, :1.2 and :1
-#   - pull requests               -> build only (nothing is published)
+#   - pull requests from this repo -> :pr-<number>, for testing before merging
+#   - pull requests from forks     -> build only (they get no write token)
 # The package is linked to this repo (via the image's source label) and
 # follows the repo's visibility: public repo -> public image.
 name: Docker image
@@ -43,8 +44,18 @@ jobs:
       - uses: actions/checkout@v7
 
       # Registry paths must be lowercase; the repo is "JamesHeadrick/DeadAir-TV".
-      - name: Image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Image name and build info
+        env:
+          VERSION: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Publish from pushes, and from PRs whose branch lives in this repo (not forks).
+          PUBLISH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "GIT_COMMIT=$COMMIT" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "PUBLISH=$PUBLISH" >> "$GITHUB_ENV"
 
       - uses: docker/setup-qemu-action@v4   # lets the amd64 runner build arm64
       - uses: docker/setup-buildx-action@v4
@@ -58,6 +69,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=ref,event=pr
             type=sha,format=short
           labels: |
             org.opencontainers.image.title=DeadAir
@@ -70,6 +82,10 @@ jobs:
           context: .
           load: true
           tags: deadair:smoke
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            GIT_COMMIT=${{ env.GIT_COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
           cache-from: type=gha
 
       - name: Smoke test
@@ -83,6 +99,8 @@ jobs:
             deadair:smoke
           for i in $(seq 30); do curl -fsS http://127.0.0.1:8000/healthz && break; sleep 1; done
           curl -fsS http://127.0.0.1:8000/healthz
+          # The build info made it into the image.
+          curl -fsS http://127.0.0.1:8000/api/version | grep -q "\"commit\":\"${GIT_COMMIT:0:7}\""
           # The admin from the environment can log in.
           curl -fsS -X POST http://127.0.0.1:8000/api/auth/login \
             -H 'Content-Type: application/json' -d '{"username":"admin","password":"smoketest1"}'
@@ -98,7 +116,7 @@ jobs:
         run: docker logs smoke || true
 
       - uses: docker/login-action@v4
-        if: github.event_name != 'pull_request'
+        if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -108,7 +126,11 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ env.PUBLISH == 'true' }}
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            GIT_COMMIT=${{ env.GIT_COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

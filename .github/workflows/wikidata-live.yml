@@ -1,0 +1,59 @@
+# Live check that the Wikidata show-link lookup still works (not a required
+# check: it depends on an external service). Runs when the lookup changes,
+# weekly, and on demand.
+#
+# A failed weekly run sends a push notification via ntfy (https://ntfy.sh)
+# when the NTFY_TOPIC repository secret is set. Optional: set the NTFY_SERVER
+# repository variable to use a self-hosted ntfy instead of ntfy.sh. To check
+# the setup, run this workflow by hand with "Send a test notification" ticked.
+name: Wikidata links (live)
+
+on:
+  pull_request:
+    paths: ["app/wikidata.py", "tools/wikidata_check.py", ".github/workflows/wikidata-live.yml"]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      test_notification:
+        description: Send a test notification
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  wikidata-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m tools.wikidata_check
+
+      - name: Notify (weekly run failed, or test)
+        if: (failure() && github.event_name == 'schedule') || inputs.test_notification
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ vars.NTFY_SERVER || 'https://ntfy.sh' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TEST: ${{ inputs.test_notification && 'true' || 'false' }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "::warning::NTFY_TOPIC secret is not set; no notification sent."
+            exit 0
+          fi
+          if [ "$TEST" = true ]; then
+            title="DeadAir: test notification"
+            msg="Notifications for the weekly Wikidata link check are working."
+          else
+            title="DeadAir: Wikidata link check failed"
+            msg="The weekly Wikidata show-link check failed. Open links fall back to search until the lookup is fixed. Tap for the run log."
+          fi
+          curl -fsS -H "Title: $title" -H "Tags: warning" -H "Click: $RUN_URL" \
+            -d "$msg" "${NTFY_SERVER%/}/$NTFY_TOPIC" > /dev/null

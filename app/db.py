@@ -74,6 +74,10 @@ class Database:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS episode_history_user ON episode_history (user_id, at)"
             )
+            show_cols = {r["name"] for r in conn.execute("PRAGMA table_info(shows)")}
+            if "links_json" not in show_cols:  # show-page links found automatically (Wikidata)
+                conn.execute("ALTER TABLE shows ADD COLUMN links_json TEXT")
+                conn.execute("ALTER TABLE shows ADD COLUMN links_checked_at REAL")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -137,6 +141,21 @@ class Database:
                     providers_checked_at = excluded.providers_checked_at
                 """,
                 (tmdb_id, json.dumps(providers), time.time()),
+            )
+
+    def set_auto_links(self, links_by_show: dict[int, dict[str, str]], tmdb_ids: list[int]) -> None:
+        """Store looked-up show links; every id in tmdb_ids counts as checked
+        (an empty result means Wikidata has nothing for it)."""
+        now = time.time()
+        with self.connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO shows (tmdb_id, links_json, links_checked_at) VALUES (?, ?, ?)
+                ON CONFLICT(tmdb_id) DO UPDATE SET
+                    links_json = excluded.links_json,
+                    links_checked_at = excluded.links_checked_at
+                """,
+                [(t, json.dumps(links_by_show.get(t, {})), now) for t in tmdb_ids],
             )
 
     # --- episodes ----------------------------------------------------------

@@ -178,6 +178,8 @@ main {
 .watch-options { display: flex; flex-direction: column; gap: 10px; }
 .btn img.logo { width: 28px; height: 28px; border-radius: 6px; margin-right: 10px; }
 .btn.secondary-option { min-height: 48px; font-size: 1rem; }
+.watch-options .btn { padding: 6px 14px; text-align: center; }
+.watch-options .btn img.logo { flex-shrink: 0; }
 .tier {
   margin: 16px 0 0;
   color: var(--muted);
@@ -308,6 +310,16 @@ main {
 .toggle { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin-top: 2px; }
 #settings-shows { margin-top: 12px; }
+.open-links { display: flex; flex-direction: column; gap: 8px; }
+.open-links .hint { margin: 0; }
+.open-link-row { display: flex; flex-direction: column; gap: 4px; }
+.open-link-head { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+.open-link-head img { width: 22px; height: 22px; border-radius: 5px; }
+.open-links input::placeholder { font-size: .8rem; }
+.link-source { margin-left: auto; font-size: .72rem; padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+.link-source.manual, .link-source.auto { background: #103a35; color: var(--accent); }
+.link-source.search, .link-source.tmdb { background: var(--warn-bg); color: var(--warn-text); }
+.settings-show .search-only { color: var(--warn-text); font-size: .8rem; }
 .channel-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .channel-list > li { background: var(--surface-2); border-radius: 10px; padding: 6px; }
 .channel-row { display: flex; align-items: center; gap: 8px; }

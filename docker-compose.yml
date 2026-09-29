@@ -4,7 +4,9 @@
 # To build from source instead, see docker-compose.build.yml.
 services:
   deadair-tv:
-    image: ghcr.io/jamesheadrick/deadair-tv:latest   # or :1 to stay on 1.x releases
+    # Set DEADAIR_IMAGE in .env to run another build, e.g. a pull request's
+    # ghcr.io/jamesheadrick/deadair-tv:pr-3, or :1 to stay on 1.x releases.
+    image: ${DEADAIR_IMAGE:-ghcr.io/jamesheadrick/deadair-tv:latest}
     container_name: deadair-tv
     restart: unless-stopped
     environment:

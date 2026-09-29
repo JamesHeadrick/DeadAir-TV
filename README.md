@@ -80,9 +80,35 @@ They can go in the same `environment:` block. The repo's own
 
 **Updating:** `docker compose pull && docker compose up -d`. Your settings,
 users and history live in `config/` and `data/`, outside the container.
-`:latest` follows the main branch. To only get releases, change the image
-tag in `docker-compose.yml` to a version: `:1` gets every 1.x release, or pin
-an exact one like `:1.0.0`.
+`:latest` follows the main branch. To only get releases, set
+`DEADAIR_IMAGE=ghcr.io/jamesheadrick/deadair-tv:1` in `.env` (every 1.x
+release), or pin an exact one like `:1.0.0`. The running version is shown at
+the bottom of the **Credits** page.
+
+### Testing a pull request
+
+Every pull request from this repo publishes its own image, tagged `pr-<number>`,
+once its checks pass. To try one before merging, point `.env` at it:
+
+```sh
+echo 'DEADAIR_IMAGE=ghcr.io/jamesheadrick/deadair-tv:pr-3' >> .env
+docker compose pull && docker compose up -d
+```
+
+New pushes to the PR update the same tag, so re-run the second line to get
+them. To go back, remove the `DEADAIR_IMAGE` line and run it again. The
+database only ever gains columns, so switching back to `latest` is safe.
+
+To build any branch yourself without cloning (slower on a Pi, around a few
+minutes):
+
+```sh
+docker build -t deadair-tv:local https://github.com/JamesHeadrick/DeadAir-TV.git#my-branch
+DEADAIR_IMAGE=deadair-tv:local docker compose up -d
+```
+
+Local builds show version `dev` on the Credits page unless you pass the build
+info, e.g. `--build-arg APP_VERSION=my-branch --build-arg GIT_COMMIT=<sha>`.
 
 ### Building from source
 
@@ -91,6 +117,8 @@ git clone https://github.com/JamesHeadrick/DeadAir-TV.git && cd DeadAir-TV
 cp .env.example .env                        # set TMDB_API_KEY
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+Use `git checkout <branch>` first to build a branch.
 
 The base image (`python:3.12-slim-bookworm`) is multi-arch, so building on a
 Pi gives you an arm64 image with no extra steps.
@@ -117,7 +145,7 @@ Everything in `config.yaml` can be edited from the web UI:
 - **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
 - **Shows**: search TMDB by name to add a show. For each show you can edit its
   channel tags (pick an existing channel or type a new one), its weight, a
-  display name, and its deep links.
+  display name, and its Open links.
 - **Channels**: every channel in use, with an optional emoji (pick from
   suggestions or type your own), plus **Rename** and **Delete**, which apply
   to every show tagged with that channel. Renaming onto an existing channel
@@ -166,12 +194,24 @@ shows:
   channels sold through another store, such as "HBO Max Amazon Channel", never
   count. Picking services in Settings uses TMDB's exact names, so you don't
   have to worry about any of this.
-- **Open links**: TMDB tells you *which* services carry a show, but it doesn't
-  give a link to the show inside each service. So **Open** goes to that
-  service's search page for the show. A `links:` entry replaces the search page
-  with an exact deep link. If a service has no known search URL, Open falls
-  back to TMDB's "Where to watch" page. You can add search URLs with
-  `search_urls:` (see `config.example.yaml`).
+- **Open links**: TMDB tells you *which* services carry a show, but not where
+  the show lives inside each service. **Open** uses the best link it has:
+  1. **Your link:** pasted in Settings → the show → **Open links**, or `links:`
+     in `config.yaml`. In the service's app, tap **Share → Copy link** on the
+     show to get it.
+  2. **Found automatically:** the show's page on Netflix, Hulu, HBO Max,
+     Disney+, Peacock, Paramount+, Prime Video or Apple TV, looked up on
+     [Wikidata](https://www.wikidata.org) by the show's TMDB ID during the
+     weekly sync. Coverage is good for well-known shows. Turn it off with
+     `WIKIDATA_LINKS=false`.
+  3. **Search:** the service's search page for the show (you can add or
+     override these with `search_urls:`). Some apps, like Hulu and HBO Max,
+     ignore search links and open their home screen.
+  4. **TMDB's "Where to watch" page**, for services with no search link.
+
+  Links go to the show's page, not a specific episode: services don't publish
+  episode IDs. In Settings, shows that still open a search are marked, so you
+  can see which ones are worth pasting a link for.
 - `include_free: false` / `include_rent_buy: false` drop those tiers.
 - **Picking**: every aired episode (season 0 and unaired episodes excluded)
   has the same chance of being picked, among the shows you can watch. A show
@@ -196,6 +236,8 @@ next to it.
 | `TV_IP` | – | Chromecast IP |
 | `ADB_PORT` | `5555` | |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | – | create the first admin at startup (only when no users exist) |
+| `WIKIDATA_LINKS` | `true` | look up show-page links on Wikidata (see Open links) |
+| `DEADAIR_IMAGE` | `ghcr.io/jamesheadrick/deadair-tv:latest` | image to run (read by docker-compose.yml, not the app) |
 | `PUID` / `PGID` | `1000` | user/group the app runs as; the `config` and `data` folders are handed to it on start |
 
 ## Phase 2: Play on TV (optional)
@@ -254,7 +296,9 @@ CONFIG_PATH=config/config.yaml DB_PATH=data/dev.db TMDB_API_KEY=... uvicorn app.
 GitHub Actions (`.github/workflows/docker.yml`) runs the tests and then
 builds the image for arm64 and amd64:
 
-- **Pull requests:** build only, nothing is published.
+- **Pull requests:** publishes `:pr-<number>` for branches in this repo
+  (see Testing a pull request). Pull requests from forks are built but not
+  published.
 - **Push to `main`:** publishes `ghcr.io/jamesheadrick/deadair-tv:latest`.
 - **Tag `vX.Y.Z`:** publishes `X.Y.Z`, `X.Y` and `X`. For example:
 

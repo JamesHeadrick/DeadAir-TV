@@ -1,4 +1,4 @@
-"""Background refresh of episodes (weekly) and provider availability (daily)."""
+"""Background refresh of episodes and show links (weekly) and provider availability (daily)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import time
 from .config import AppConfig, Settings
 from .db import Database
 from .tmdb import TMDBClient
+from . import wikidata
 
 log = logging.getLogger("deadair.sync")
 
@@ -16,10 +17,11 @@ LOOP_INTERVAL_S = 3600
 
 
 class Syncer:
-    def __init__(self, settings: Settings, db: Database, client: TMDBClient):
+    def __init__(self, settings: Settings, db: Database, client: TMDBClient, wikidata_transport=None):
         self.settings = settings
         self.db = db
         self.client = client
+        self.wikidata_transport = wikidata_transport  # for tests
         self._lock = asyncio.Lock()
         self.last_error: str | None = None
 
@@ -55,6 +57,18 @@ class Syncer:
                     except Exception as e:
                         self.last_error = f"providers for {tmdb_id}: {e}"
                         log.warning("provider check failed for %s: %s", tmdb_id, e)
+
+            # Show-page links from Wikidata, weekly like episodes, in batches.
+            if self.settings.wikidata_links:
+                due = [t for t in tmdb_ids
+                       if force or self._stale(existing.get(t) and existing[t]["links_checked_at"], ep_age, now)]
+                if due:
+                    try:
+                        links = await wikidata.fetch_show_links(due, transport=self.wikidata_transport)
+                        self.db.set_auto_links(links, due)
+                        log.info("wikidata: show links for %d of %d shows", len(links), len(due))
+                    except Exception as e:  # non-fatal: Open falls back to search
+                        log.warning("wikidata lookup failed: %s", e)
 
     async def loop(self, get_config) -> None:
         while True:

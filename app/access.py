@@ -14,6 +14,7 @@ from urllib.parse import quote, quote_plus
 
 from .config import AppConfig, ShowConfig
 from .tmdb import image_url
+from .wikidata import SERVICE_ALIASES
 
 TIER_LABELS = {
     "subscription": "On your services",
@@ -111,6 +112,9 @@ class WatchOption:
     provider_name: str
     logo_url: str | None
     url: str
+    # Where the link came from: "manual" (pasted in Settings), "auto" (Wikidata),
+    # "search" (the service's search page) or "tmdb" (TMDB's where-to-watch page).
+    source: str = "search"
 
 
 @dataclass
@@ -146,7 +150,8 @@ def _dedupe(providers: list[dict]) -> list[dict]:
 
 
 def compute_access(
-    cfg: AppConfig, show: ShowConfig, show_name: str, providers: dict | None
+    cfg: AppConfig, show: ShowConfig, show_name: str, providers: dict | None,
+    auto_links: dict[str, str] | None = None,
 ) -> Access:
     if providers is None:
         return Access(checked=False)
@@ -174,22 +179,42 @@ def compute_access(
             return Access(
                 checked=True,
                 tier=tier,
-                options=[_option(cfg, show, show_name, p, providers.get("link")) for p in found],
+                options=[_option(cfg, show, show_name, p, providers.get("link"), auto_links or {}) for p in found],
                 other_subscriptions=others,
             )
     return Access(checked=True, other_subscriptions=others)
 
 
-def _option(cfg: AppConfig, show: ShowConfig, show_name: str, p: dict, tmdb_link: str | None) -> WatchOption:
+def _auto_link(auto_links: dict[str, str], provider_name: str) -> str | None:
+    for service, url in auto_links.items():
+        names = (service, *SERVICE_ALIASES.get(service, ()))
+        if any(names_match(n, provider_name) for n in names):
+            return url
+    return None
+
+
+def _option(
+    cfg: AppConfig, show: ShowConfig, show_name: str, p: dict, tmdb_link: str | None,
+    auto_links: dict[str, str],
+) -> WatchOption:
+    """Link priority: pasted in Settings > found on Wikidata > search page > TMDB page."""
     name = p["provider_name"]
+    source = "manual"
     url = _lookup(show.links, name)
+    if not url:
+        source, url = "auto", _auto_link(auto_links, name)
     if not url:
         template = _lookup(cfg.search_urls, name) or builtin_search_url(name)
         if template:
+            source = "search"
             url = template.format(q=quote_plus(show_name), q_path=quote(show_name, safe=""))
+    if not url:
+        source = "tmdb"
+        url = tmdb_link or f"https://www.themoviedb.org/tv/{show.tmdb_id}/watch"
     return WatchOption(
         provider_id=p.get("provider_id"),
         provider_name=name,
         logo_url=image_url(p.get("logo_path"), "w92"),
-        url=url or tmdb_link or f"https://www.themoviedb.org/tv/{show.tmdb_id}/watch",
+        url=url,
+        source=source,
     )

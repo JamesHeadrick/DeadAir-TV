@@ -1,6 +1,7 @@
 .git
 data
 tests
+tools
 **/__pycache__
 .env
 config.yaml

@@ -50,6 +50,25 @@ function openCredits(e) {
   viewBeforeCredits = currentView;
   showView("credits");
   window.scrollTo(0, 0);
+  loadVersion();
+}
+
+async function loadVersion() {
+  const node = $("app-version");
+  try {
+    const v = await api("api/version");
+    const parts = [v.version];
+    if (v.commit) {
+      parts.push(el("a", {
+        href: `https://github.com/JamesHeadrick/DeadAir-TV/commit/${v.commit_full}`,
+        target: "_blank", rel: "noopener", textContent: v.commit,
+      }));
+    }
+    if (v.built) parts.push(`built ${v.built.slice(0, 10)}`);
+    node.replaceChildren(...parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
+  } catch {
+    node.textContent = "Unknown";
+  }
 }
 
 // --- login ------------------------------------------------------------------
@@ -246,11 +265,19 @@ function render(ep, error) {
       rel: "noopener",
     });
     if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
-    a.append(i === 0 ? `Open in ${o.provider_name}` : o.provider_name);
+    a.append(el("span", { textContent: watchLabel(o) }));
     return a;
   });
   $("watch-options").replaceChildren(...opts);
   $("play").hidden = !adbEnabled || !access.options.length;
+}
+
+// Say what the button will do: show pages open the series, fallbacks only search.
+function watchLabel(o) {
+  const name = o.provider_name;
+  if (o.source === "manual" || o.source === "auto") return `Open series in ${name}`;
+  if (o.source === "tmdb") return `Find ${name} on TMDB`;
+  return `Search in ${name}`;
 }
 
 // "COMEDY · scifi · short": the channel you picked from, then the show's other channels, dimmed.
