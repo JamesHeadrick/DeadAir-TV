@@ -241,6 +241,12 @@ def _fake_tmdb(requests):
                 "US": {"link": "https://tmdb/watch/99",
                        "flatrate": [{"provider_id": 15, "provider_name": "Hulu"}]},
             }})
+        if m := re.fullmatch(r"/3/tv/99/season/(\d+)/watch/providers", path):
+            # Hulu has seasons 1-5; TMDB knows nothing about the rest.
+            if int(m.group(1)) > 5:
+                return httpx.Response(200, json={"results": {}})
+            return httpx.Response(200, json={"results": {"US": {
+                "flatrate": [{"provider_id": 15, "provider_name": "Hulu"}]}}})
         if path == "/3/tv/99":
             body = {"name": "Test Show", "status": "Ended", "seasons": [
                 {"season_number": n} for n in range(0, 23)
@@ -275,8 +281,10 @@ def test_sync_fetches_all_seasons_except_zero_and_providers(tmp_path):
     asyncio.run(syncer.run_once(cfg))
     assert syncer.last_error is None
     assert all(r.url.params["api_key"] == "abc123" for r in requests)
-    # 1 info call + 2 chunks of seasons (1-20, 21-22) + providers
-    assert len(requests) == 4
+    # 1 info call + 2 chunks of seasons (1-20, 21-22) + providers + providers for each of 22 seasons
+    assert len(requests) == 4 + 22
+    by_season = json.loads(db.get_show(99)["season_providers_json"])
+    assert sorted(by_season, key=int) == ["1", "2", "3", "4", "5"]  # no-data seasons left out
     counts = db.pickable_episode_counts([99], "2026-01-01")
     assert counts == {99: 22}
     row = db.get_show(99)
@@ -328,6 +336,33 @@ def client(tmp_path):
         db.set_providers(1, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})
         db.set_providers(2, {"flatrate": [{"provider_id": 15, "provider_name": "Hulu"}]})
         yield c
+
+
+def test_seasons_a_service_lacks_are_not_picked(client):
+    db = main.state.db
+    db.replace_episodes(_show(1), _eps(1, 1, 3) + _eps(1, 2, 3))
+    netflix = {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]}
+    hulu = {"flatrate": [{"provider_id": 15, "provider_name": "Hulu"}]}
+    db.set_season_providers(1, {1: netflix, 2: hulu})  # you only have Netflix
+
+    for _ in range(15):
+        ep = client.get("/api/pick", params={"channel": "short"}).json()
+        assert ep["season"] == 1 and ep["access"]["options"][0]["provider_name"] == "Netflix"
+
+    shows = {s["tmdb_id"]: s for s in client.get("/api/shows").json()["shows"]}
+    assert shows[1]["access"]["tier"] == "subscription"  # the show as a whole
+    assert [(g["first"], g["last"], g["tier"], g["providers"]) for g in shows[1]["access"]["by_season"]] == [
+        (1, 1, "subscription", ["Netflix"]), (2, 2, None, [])]
+
+    # A season TMDB has no data for uses the whole-show answer; nothing to call out.
+    db.set_season_providers(1, {1: netflix})
+    assert {client.get("/api/pick", params={"channel": "short"}).json()["season"] for _ in range(30)} == {1, 2}
+    assert client.get("/api/shows").json()["shows"][0]["access"]["by_season"] == []
+
+    # Every season elsewhere: the show counts as nowhere to watch.
+    db.set_season_providers(1, {1: hulu, 2: hulu})
+    assert client.get("/api/pick", params={"channel": "short"}).status_code == 404
+    assert client.get("/api/channels").json()["channels"][0]["unwatchable"] == ["Show 1"]
 
 
 def test_api_channels_and_shows(client):

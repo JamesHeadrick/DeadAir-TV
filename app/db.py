@@ -78,6 +78,8 @@ class Database:
             if "links_json" not in show_cols:  # show-page links found automatically (Wikidata)
                 conn.execute("ALTER TABLE shows ADD COLUMN links_json TEXT")
                 conn.execute("ALTER TABLE shows ADD COLUMN links_checked_at REAL")
+            if "season_providers_json" not in show_cols:  # where each season streams, {season: providers}
+                conn.execute("ALTER TABLE shows ADD COLUMN season_providers_json TEXT")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -143,6 +145,31 @@ class Database:
                 (tmdb_id, json.dumps(providers), time.time()),
             )
 
+    def set_season_providers(self, tmdb_id: int, by_season: dict[int, dict]) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO shows (tmdb_id, season_providers_json) VALUES (?, ?)
+                ON CONFLICT(tmdb_id) DO UPDATE SET season_providers_json = excluded.season_providers_json
+                """,
+                (tmdb_id, json.dumps({str(k): v for k, v in by_season.items()})),
+            )
+
+    def show_seasons(self, tmdb_ids: list[int]) -> dict[int, list[int]]:
+        """Regular seasons (no specials) each show has episodes in."""
+        if not tmdb_ids:
+            return {}
+        marks = ",".join("?" * len(tmdb_ids))
+        out: dict[int, list[int]] = {t: [] for t in tmdb_ids}
+        with self.connect() as conn:
+            for r in conn.execute(
+                f"SELECT DISTINCT tmdb_id, season FROM episodes WHERE tmdb_id IN ({marks}) AND season > 0 "
+                "ORDER BY tmdb_id, season",
+                tmdb_ids,
+            ):
+                out[r["tmdb_id"]].append(r["season"])
+        return out
+
     def set_auto_links(self, links_by_show: dict[int, dict[str, str]], tmdb_ids: list[int]) -> None:
         """Store looked-up show links; every id in tmdb_ids counts as checked
         (an empty result means Wikidata has nothing for it)."""
@@ -161,16 +188,17 @@ class Database:
     # --- episodes ----------------------------------------------------------
 
     def pickable_episode_counts(
-        self, tmdb_ids: list[int], today: str, exclude: list[str] = ()
+        self, tmdb_ids: list[int], today: str, exclude: list[str] = (), skip_seasons: list[str] = ()
     ) -> dict[int, int]:
         """Number of aired, non-special episodes per show.
 
-        ``exclude`` holds episode keys ("tmdb_id:season:episode") to leave out.
+        ``exclude`` holds episode keys ("tmdb_id:season:episode") to leave out,
+        ``skip_seasons`` whole seasons ("tmdb_id:season").
         """
         if not tmdb_ids:
             return {}
         marks = ",".join("?" * len(tmdb_ids))
-        skip_sql, skip_args = _exclude_sql(exclude)
+        skip_sql, skip_args = _exclude_sql(exclude, skip_seasons)
         with self.connect() as conn:
             rows = conn.execute(
                 f"""
@@ -184,9 +212,9 @@ class Database:
             return {r["tmdb_id"]: r["n"] for r in rows}
 
     def nth_pickable_episode(
-        self, tmdb_id: int, n: int, today: str, exclude: list[str] = ()
+        self, tmdb_id: int, n: int, today: str, exclude: list[str] = (), skip_seasons: list[str] = ()
     ) -> sqlite3.Row | None:
-        skip_sql, skip_args = _exclude_sql(exclude)
+        skip_sql, skip_args = _exclude_sql(exclude, skip_seasons)
         with self.connect() as conn:
             return conn.execute(
                 f"""
@@ -323,12 +351,14 @@ def episode_key(tmdb_id: int, season: int, episode: int) -> str:
     return f"{tmdb_id}:{season}:{episode}"
 
 
-def _exclude_sql(keys) -> tuple[str, list]:
-    keys = list(keys)
-    if not keys:
-        return "", []
-    marks = ",".join("?" * len(keys))
-    return f"AND (e.tmdb_id || ':' || e.season || ':' || e.episode) NOT IN ({marks})", keys
+def _exclude_sql(keys, seasons=()) -> tuple[str, list]:
+    keys, seasons = list(keys), list(seasons)
+    sql = ""
+    if keys:
+        sql += f" AND (e.tmdb_id || ':' || e.season || ':' || e.episode) NOT IN ({','.join('?' * len(keys))})"
+    if seasons:
+        sql += f" AND (e.tmdb_id || ':' || e.season) NOT IN ({','.join('?' * len(seasons))})"
+    return sql, [*keys, *seasons]
 
 
 # An episode is pickable once it has aired. Undated episodes are only trusted

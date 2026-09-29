@@ -204,6 +204,7 @@ def _user_json(u) -> dict:
 class PlayRequest(BaseModel):
     tmdb_id: int
     provider_id: int | None = None  # which watch option; default = the first
+    season: int | None = None       # the episode's season, when a service only has some
 
 
 def create_app(settings: Settings | None = None, start_sync: bool = True) -> FastAPI:
@@ -457,10 +458,16 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         if not candidates:
             raise HTTPException(404, "no other shows left in this channel")
         cooling = state.db.cooldown_keys(user.id, _cooldown_since())
-        result = pick_episode(state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling])
+        result = pick_episode(
+            state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling],
+            skip_seasons=[k for s in candidates for k in info[s.tmdb_id]["_skip_seasons"]],
+        )
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
         picked, ep = result
+        picked_info = info[picked.tmdb_id]
+        # Where to watch this episode's season (a service may only have some seasons).
+        season_access = picked_info["_season_access"].get(ep["season"], picked_info["_access"])
         row = state.db.get_show(picked.tmdb_id)
         cfg = current_config()
         return {
@@ -471,7 +478,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             },
             # How many other shows "Different show" could still offer.
             "other_shows": sum(1 for s in watchable if s.tmdb_id not in skip_show and s is not picked),
-            **_public(info[picked.tmdb_id]),
+            **_public(picked_info),
+            "access": season_access.to_dict(),
             "season": ep["season"],
             "episode": ep["episode"],
             "code": f"S{ep['season']:02d}E{ep['episode']:02d}",
@@ -513,7 +521,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         show = current_config().find_show(req.tmdb_id)
         if show is None:
             raise HTTPException(404, "unknown show")
-        access = _show_infos([show])[show.tmdb_id]["_access"]
+        info = _show_infos([show])[show.tmdb_id]
+        access = info["_season_access"].get(req.season, info["_access"])
         options = access.options
         if req.provider_id is not None:
             options = [o for o in options if o.provider_id == req.provider_id]
@@ -619,24 +628,60 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
 
 
 def _show_infos(shows: list[ShowConfig]) -> dict[int, dict]:
-    rows = state.db.get_shows([s.tmdb_id for s in shows])
+    ids = [s.tmdb_id for s in shows]
+    rows = state.db.get_shows(ids)
+    seasons_by_show = state.db.show_seasons(ids)
     out = {}
     for show in shows:
         row = rows.get(show.tmdb_id)
         name = show.name or (row["name"] if row and row["name"] else None) or show.title or f"TMDB #{show.tmdb_id}"
         providers = json.loads(row["providers_json"]) if row and row["providers_json"] else None
-        access: Access = compute_access(state.config, show, name, providers, _auto_links(row))
+        auto_links = _auto_links(row)
+        access: Access = compute_access(state.config, show, name, providers, auto_links)
+
+        # Per season, when TMDB knows where seasons stream; seasons it has no
+        # data for use the whole-show answer.
+        by_season_json = json.loads(row["season_providers_json"]) if row and row["season_providers_json"] else {}
+        season_access: dict[int, Access] = {}
+        if providers is not None and by_season_json:
+            for season in seasons_by_show[show.tmdb_id]:
+                data = by_season_json.get(str(season))
+                season_access[season] = (
+                    compute_access(state.config, show, name, data, auto_links) if data else access
+                )
+        skipped = [s for s, a in season_access.items() if not a.watchable]
+        watchable = len(skipped) < len(season_access) if season_access else access.watchable
+
         out[show.tmdb_id] = {
             "tmdb_id": show.tmdb_id,
             "show_name": name,
             "channels": list(show.channels),
             "poster_url": image_url(row["poster_path"], "w185") if row else None,
             "thumb_url": image_url(row["poster_path"], "w92") if row else None,
-            "access": access.to_dict(),
+            "access": {**access.to_dict(), "by_season": _season_groups(season_access)},
             "_access": access,
-            "_watchable": access.watchable,
+            "_season_access": season_access,
+            "_skip_seasons": [f"{show.tmdb_id}:{s}" for s in skipped],
+            "_watchable": watchable,
         }
     return out
+
+
+def _season_groups(season_access: dict[int, Access]) -> list[dict]:
+    """Runs of seasons you'd watch in the same place, e.g. S1-5 on Netflix, S6-8
+    nowhere. Empty when every season is the same (nothing worth showing)."""
+    groups: list[dict] = []
+    for season in sorted(season_access):
+        a = season_access[season]
+        where = {"tier": a.tier, "tier_label": a.to_dict()["tier_label"],
+                 "providers": [o.provider_name for o in a.options]}
+        if groups and groups[-1]["where"] == where:
+            groups[-1]["seasons"].append(season)
+        else:
+            groups.append({"seasons": [season], "where": where})
+    if len(groups) < 2:
+        return []
+    return [{"first": g["seasons"][0], "last": g["seasons"][-1], **g["where"]} for g in groups]
 
 
 def _cooldown_since() -> float:

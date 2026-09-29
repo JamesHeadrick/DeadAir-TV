@@ -225,6 +225,9 @@ main {
   flex: none;
 }
 .show-item h3 { margin: 0; font-size: 1.05rem; }
+.show-item p.season-line { font-size: .8rem; }
+.show-item .chips + .season-line { margin-top: 6px; }
+.show-item p.season-line.skipped { color: var(--warn-text); }
 .show-item p { margin: 2px 0 0; font-size: .85rem; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .chip {

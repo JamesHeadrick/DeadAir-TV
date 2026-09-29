@@ -393,7 +393,7 @@ async function playOnTv() {
     await api("api/play", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tmdb_id: current.tmdb_id }),
+      body: JSON.stringify({ tmdb_id: current.tmdb_id, season: current.season }),
     });
     showNotice($("play-status"), "Launched on TV.");
   } catch (e) {
@@ -438,7 +438,19 @@ function accessBits(a, channels) {
   if (a.other_subscriptions.length) {
     lines.push(el("p", { textContent: `Also on: ${a.other_subscriptions.join(", ")}` }));
   }
-  return [...lines, chips];
+  return [...lines, chips, ...seasonLines(a.by_season || [])];
+}
+
+// "S1–5: Netflix" / "S6–8: not on your services · skipped", when seasons differ.
+function seasonLines(groups) {
+  return groups.map((g) => {
+    const range = g.first === g.last ? `S${g.first}` : `S${g.first}–${g.last}`;
+    let where = g.providers.join(", ");
+    if (!g.tier) where = "not on your services · skipped";
+    else if (g.tier !== "subscription") where += ` (${g.tier_label.toLowerCase()})`;
+    return el("p", { className: "season-line" + (g.tier ? "" : " skipped") },
+      el("b", { textContent: `${range}: ` }), where);
+  });
 }
 
 function showItem(s) {
