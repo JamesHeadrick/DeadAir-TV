@@ -259,7 +259,13 @@ function render(ep, error) {
     $("play").hidden = true;
     return;
   }
-  $("p-show").textContent = ep.show_name;
+  // Admins can jump straight to this show's settings (e.g. to add an Open link).
+  $("p-show").replaceChildren(me?.is_admin
+    ? el("button", {
+      className: "show-link", textContent: ep.show_name, title: "Edit this show",
+      onclick: () => loadShows(ep.tmdb_id),
+    })
+    : ep.show_name);
   $("p-code").textContent = ep.code;
   $("p-title").textContent = ep.title;
   $("p-title").title = ep.title; // the line is cut short with "…" when long
@@ -434,7 +440,11 @@ async function playOnTv() {
 
 // --- all shows --------------------------------------------------------------
 
-async function loadShows() {
+let showsFrom = null; // the view All shows was opened from, for Back
+
+// focusId: open this show's editor and scroll to it.
+async function loadShows(focusId) {
+  if (!["shows", "credits"].includes(currentView)) showsFrom = currentView;
   showView("shows");
   showNotice($("shows-error"), "");
   const list = $("show-list");
@@ -444,11 +454,24 @@ async function loadShows() {
     $("my-services").textContent = services.length
       ? `Your services: ${services.join(", ")}`
       : "No services set up yet (Settings → Your services)";
-    if (me.is_admin) await openShowsEditor(shows); // settings.js: same list, editable
-    else list.replaceChildren(...shows.map(showItem));
+    if (me.is_admin) await openShowsEditor(shows, focusId); // settings.js: same list, editable
+    else list.replaceChildren(...[...shows].sort(byName((s) => s.show_name)).map(showItem));
   } catch (e) {
     list.replaceChildren(el("li", { className: "notice error", textContent: e.message }));
   }
+}
+
+// Alphabetical, ignoring case and accents.
+const byName = (key) => (a, b) => key(a).localeCompare(key(b), undefined, { sensitivity: "base" });
+
+// Back from All shows to a pick: refresh its watch buttons in case links changed.
+async function returnToPick() {
+  showView("pick");
+  if (!current) return;
+  try {
+    const { access } = await api(`api/access?tmdb_id=${current.tmdb_id}&season=${current.season}`);
+    render({ ...current, access });
+  } catch { /* keep the card as it was */ }
 }
 
 // Where-to-watch lines for a show: tier and channels, provider chips, other services.
@@ -498,7 +521,7 @@ $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
 $("play").addEventListener("click", playOnTv);
 $("p-more").addEventListener("click", toggleOverview);
-$("shows-btn").addEventListener("click", loadShows);
+$("shows-btn").addEventListener("click", () => loadShows());
 $("back").addEventListener("click", () => {
   if (currentView === "credits") {
     // Return to where Credits was opened from (e.g. the login screen or a pick).
@@ -508,6 +531,7 @@ $("back").addEventListener("click", () => {
     if (back && back !== "settings") return showView(back);
   }
   if (!settingsCanLeave()) return;
+  if (currentView === "shows" && showsFrom === "pick") return returnToPick();
   showView("channels");
   loadChannels();
 });

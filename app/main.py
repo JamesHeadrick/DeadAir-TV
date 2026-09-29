@@ -431,6 +431,16 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         info = _show_infos(current_config().shows)
         return {"shows": [_public(info[s.tmdb_id]) for s in current_config().shows]}
 
+    @app.get("/api/access")
+    async def show_access(tmdb_id: int, season: int | None = None):
+        """Where to watch one show (or one season of it), e.g. to refresh a
+        pick after its links were edited."""
+        show = current_config().find_show(tmdb_id)
+        if show is None:
+            raise HTTPException(404, "unknown show")
+        info = _show_infos([show])[tmdb_id]
+        return {"access": info["_season_access"].get(season, info["_access"]).to_dict()}
+
     @app.get("/api/pick")
     async def pick(
         channel: str,

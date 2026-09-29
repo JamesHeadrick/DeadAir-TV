@@ -82,13 +82,17 @@ async function openSettings() {
 
 // All shows, admin version: every show from the draft, with where-to-watch
 // info from api/shows and an editor per show.
-async function openShowsEditor(shows) {
+async function openShowsEditor(shows, focusId) {
   showInfo = new Map(shows.map((s) => [s.tmdb_id, s]));
-  if (await ensureDraft()) {
-    renderShows();
-    changed();
-  }
+  if (!(await ensureDraft())) return;
+  if (focusId != null) expanded.add(focusId);
+  renderShows();
+  changed();
+  if (focusId != null) $("show-list").querySelector(`[data-tmdb="${focusId}"]`)?.scrollIntoView({ block: "start" });
 }
+
+// The name All shows sorts and titles a show by.
+const listName = (show) => show.name || showInfo.get(show.tmdb_id)?.show_name || showTitle(show);
 
 function changed() {
   if (!draft) return;
@@ -229,6 +233,8 @@ function renderSearchResults(results) {
       box.replaceChildren();
       renderShows();
       changed();
+      // It lands in its alphabetical spot, with its editor open.
+      $("show-list").querySelector(`[data-tmdb="${r.tmdb_id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
     });
     return row;
   }));
@@ -241,7 +247,7 @@ function renderShows() {
   if (!draft.shows.length) {
     return list.replaceChildren(el("li", { className: "notice", textContent: "No shows yet. Search above to add one." }));
   }
-  list.replaceChildren(...draft.shows.map(showRow));
+  list.replaceChildren(...[...draft.shows].sort(byName(listName)).map(showRow));
 }
 
 // --- channels -----------------------------------------------------------------
@@ -434,7 +440,7 @@ function showRow(show) {
   const head = el("button", { className: "head", ariaExpanded: String(open) },
     poster ? el("img", { className: "poster", src: poster, alt: "" }) : el("div", { className: "poster" }),
     el("div", { className: "grow" },
-      el("h3", { textContent: showTitle(show) }),
+      el("h3", { textContent: listName(show) }),
       show.channels.length
         ? el("p", { textContent: show.channels.join(" · ") + (show.weight !== 1 ? ` · weight ${show.weight}` : "") })
         : el("p", { className: "warn-text", textContent: "Pick at least one channel" }),
@@ -448,6 +454,7 @@ function showRow(show) {
     renderShows();
   });
   const li = el("li", { className: "show-item settings-show" }, head);
+  li.dataset.tmdb = show.tmdb_id;
   if (open) li.append(showEditor(show));
   return li;
 }

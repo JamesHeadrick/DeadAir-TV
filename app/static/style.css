@@ -150,6 +150,12 @@ main {
 .channel-label .other:hover, .channel-label .other:focus-visible { opacity: 1; color: var(--text); }
 .channel-label .other::before { content: " · "; display: inline-block; white-space: pre; text-decoration: none; }
 .card h2 { margin: 4px 0 2px; font-size: 1.5rem; line-height: 1.2; }
+.show-link {
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 5px;
+}
+.show-link:hover, .show-link:focus-visible { text-decoration-color: var(--accent); }
 .ep-line { margin: 0 0 12px; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -382,7 +388,7 @@ main {
 .service-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .service-row .btn.small { min-height: 36px; min-width: 36px; padding: 0; background: var(--bg); font-size: 1rem; }
 .service-row .btn.small:disabled { opacity: .3; cursor: default; }
-.settings-show { flex-direction: column; }
+.settings-show { flex-direction: column; scroll-margin-top: 12px; }
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
 .settings-show .head .grow { flex: 1; min-width: 0; }
 .settings-show .head { align-items: flex-start; }

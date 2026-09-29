@@ -827,6 +827,15 @@ def test_link_priority_manual_then_auto_then_search():
     assert opts["Netflix"].source == "search" and "search?q=Some+Show" in opts["Netflix"].url
 
 
+def test_access_endpoint_reflects_edited_links(client):
+    first = client.get("/api/access", params={"tmdb_id": 2}).json()["access"]
+    assert first["tier"] is None  # show 2 is only on Hulu, which you don't have
+    assert client.get("/api/access", params={"tmdb_id": 1, "season": 1}).json()["access"]["options"][0]["source"] == "manual"
+    assert client.get("/api/access", params={"tmdb_id": 999}).status_code == 404
+    client.post("/api/auth/logout")
+    assert client.get("/api/access", params={"tmdb_id": 1}).status_code == 401
+
+
 def test_openable_services_come_before_searches():
     # Prime is higher in your list, but only Hulu has a link to the show itself.
     cfg = AppConfig(services=["Amazon Prime Video", "Netflix", "Hulu", "Fubo"])
