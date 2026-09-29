@@ -252,7 +252,7 @@ function render(ep, error) {
     $("p-show").textContent = "Nothing to show";
     $("p-code").textContent = "";
     $("p-title").textContent = "";
-    $("p-overview").textContent = error || "";
+    setOverview(error || "");
     $("p-tier").textContent = "";
     $("watch-options").replaceChildren();
     still.removeAttribute("src");
@@ -262,7 +262,8 @@ function render(ep, error) {
   $("p-show").textContent = ep.show_name;
   $("p-code").textContent = ep.code;
   $("p-title").textContent = ep.title;
-  $("p-overview").textContent = ep.overview || "No synopsis available.";
+  $("p-title").title = ep.title; // the line is cut short with "…" when long
+  setOverview(ep.overview || "No synopsis available.");
   if (ep.still_url) {
     still.src = ep.still_url;
     still.alt = `${ep.show_name} ${ep.code}`;
@@ -275,19 +276,47 @@ function render(ep, error) {
   tier.className = "tier" + (access.tier === "rent_buy" ? " rent" : "");
   tier.replaceChildren(el("strong", { textContent: access.checked ? access.tier_label : "Checking where to watch…" }));
 
-  const opts = access.options.map((o, i) => {
-    const a = el("a", {
-      className: i === 0 ? "btn primary" : "btn secondary-option",
-      href: o.url,
-      target: "_blank",
-      rel: "noopener",
-    });
-    if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
-    a.append(el("span", { textContent: watchLabel(o) }));
-    return a;
-  });
-  $("watch-options").replaceChildren(...opts);
+  // The best option as the big button; the rest fold away under one line.
+  const [best, ...others] = access.options;
+  const more = el("details", { className: "more-ways" + (others.length ? "" : " none") },
+    el("summary", { textContent: `${others.length} other way${others.length === 1 ? "" : "s"} to watch` }),
+    el("div", { className: "more-ways-list" }, ...others.map((o) => watchButton(o, false))));
+  if (!others.length) more.setAttribute("aria-hidden", "true");
+  const main = best
+    ? watchButton(best, true)
+    : el("span", { className: "btn placeholder", textContent: access.checked ? "Nowhere to watch" : "Checking where to watch…" });
+  $("watch-options").replaceChildren(main, more);
   $("play").hidden = !adbEnabled || !access.options.length;
+}
+
+function watchButton(o, primary) {
+  const a = el("a", {
+    className: primary ? "btn primary" : "btn secondary-option",
+    href: o.url,
+    target: "_blank",
+    rel: "noopener",
+  });
+  if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
+  a.append(el("span", { textContent: watchLabel(o) }));
+  return a;
+}
+
+// Synopsis limited to 3 lines, with "Read more" only when it's actually cut off.
+function setOverview(text) {
+  const p = $("p-overview");
+  const more = $("p-more");
+  p.textContent = text;
+  p.classList.add("clamped");
+  more.textContent = "Read more";
+  more.setAttribute("aria-expanded", "false");
+  // Measure once it's laid out (the view may have only just been shown).
+  requestAnimationFrame(() => more.classList.toggle("unneeded", p.scrollHeight <= p.clientHeight + 1));
+}
+
+function toggleOverview() {
+  const expanded = $("p-overview").classList.toggle("clamped") === false;
+  $("p-more").textContent = expanded ? "Show less" : "Read more";
+  $("p-more").setAttribute("aria-expanded", String(expanded));
 }
 
 // Say what the button will do: show pages open the series, fallbacks only search.
@@ -468,6 +497,7 @@ $("skip").addEventListener("click", skipEpisode);
 $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
 $("play").addEventListener("click", playOnTv);
+$("p-more").addEventListener("click", toggleOverview);
 $("shows-btn").addEventListener("click", loadShows);
 $("back").addEventListener("click", () => {
   if (currentView === "credits") {

@@ -150,7 +150,7 @@ main {
 .channel-label .other:hover, .channel-label .other:focus-visible { opacity: 1; color: var(--text); }
 .channel-label .other::before { content: " · "; display: inline-block; white-space: pre; text-decoration: none; }
 .card h2 { margin: 4px 0 2px; font-size: 1.5rem; line-height: 1.2; }
-.ep-line { margin: 0 0 12px; font-size: 1.05rem; }
+.ep-line { margin: 0 0 12px; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--surface-2);
@@ -158,7 +158,22 @@ main {
   border-radius: 6px;
   margin-right: 4px;
 }
-.overview { margin: 0; color: var(--muted); }
+/* The synopsis always takes 3 lines (more on "Read more") so the buttons
+   below don't jump around between rerolls. */
+.overview { margin: 0; color: var(--muted); line-height: 1.45; min-height: calc(3 * 1.45em); }
+.overview.clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.read-more {
+  display: block;
+  background: none; border: 0; padding: 4px 0; margin: 2px 0 -4px;
+  font: inherit; font-size: .85rem; color: var(--accent); cursor: pointer;
+}
+.read-more.unneeded { visibility: hidden; } /* keeps its space */
 .flag {
   background: var(--warn-bg);
   color: var(--warn-text);
@@ -179,6 +194,22 @@ main {
 .btn img.logo { width: 28px; height: 28px; border-radius: 6px; margin-right: 10px; }
 .btn.secondary-option { min-height: 48px; font-size: 1rem; }
 .watch-options .btn { padding: 6px 14px; text-align: center; }
+/* Alternatives fold away under one line, which is always there (hidden when
+   empty) so the rest of the page stays put. */
+.more-ways > summary {
+  list-style: none;
+  text-align: center;
+  color: var(--muted);
+  font-size: .9rem;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.more-ways > summary::-webkit-details-marker { display: none; }
+.more-ways > summary::before { content: "▸ "; }
+.more-ways[open] > summary::before { content: "▾ "; }
+.more-ways.none { visibility: hidden; pointer-events: none; }
+.more-ways-list { display: flex; flex-direction: column; gap: 10px; }
+.watch-options .btn.placeholder { color: var(--muted); font-weight: 400; cursor: default; }
 .watch-options .btn img.logo { flex-shrink: 0; }
 .tier {
   margin: 16px 0 0;
