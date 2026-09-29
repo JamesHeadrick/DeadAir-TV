@@ -352,6 +352,7 @@ icon?** Add it as a `<symbol>` in the icon sprite at the top of `<body>` in
 `app/static/index.html`, use it with `<svg><use href="#id"/></svg>`, and add a
 line for it (with the icon) to the list in the `credits-view` section.
 
-The DeadAir TV icon (`app/static/icon.svg`) was made for this project. The
+The DeadAir TV icon (`app/static/icon.svg`) was made for this project by Claude
+(Anthropic), and is credited on the Credits page too. The
 home-screen PNGs are rendered from `tools/icon-full.svg` with
 `python tools/make_icons.py`.

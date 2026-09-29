@@ -468,6 +468,8 @@ footer p { margin: 4px 0; }
   flex: none; width: 40px; height: 40px; padding: 6px; box-sizing: border-box;
   border-radius: 10px; background: var(--surface-2); color: var(--text);
 }
+.credit-icon.app { padding: 0; } /* the app icon brings its own tile */
+.credit-list + p { margin-top: 14px; }
 footer a { color: var(--muted); }
 footer .build-info { opacity: .8; }
 footer .update-info a { color: var(--accent); font-weight: 600; text-decoration: none; }
