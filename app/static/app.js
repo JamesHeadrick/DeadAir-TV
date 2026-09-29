@@ -262,7 +262,14 @@ function renderChannelLabel(ep) {
   $("p-channel").replaceChildren(
     emoji ? el("span", { className: "emoji", textContent: emoji, ariaHidden: "true" }) : "",
     el("span", { textContent: currentChannel }),
-    ...others.map((c) => el("span", { className: "other", textContent: c, title: `${ep.show_name} is also on ${c}` })),
+    ...others.map((c) => {
+      const link = el("button", {
+        className: "other", textContent: c, title: `Roll on ${c} instead`,
+        ariaLabel: `${ep.show_name} is also on ${c}. Roll on ${c}`,
+      });
+      link.addEventListener("click", () => enterChannel(c)); // a fresh visit to that channel
+      return link;
+    }),
   );
 }
 

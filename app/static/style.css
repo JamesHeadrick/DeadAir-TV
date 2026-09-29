@@ -141,8 +141,14 @@ main {
   text-transform: uppercase;
   letter-spacing: .08em;
 }
-.channel-label .other { color: var(--muted); opacity: .7; }
-.channel-label .other::before { content: " · "; }
+.channel-label .other {
+  background: none; border: 0; padding: 6px 0; margin: -6px 0; /* bigger tap target, same line height */
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+  color: var(--muted); opacity: .7; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.channel-label .other:hover, .channel-label .other:focus-visible { opacity: 1; color: var(--text); }
+.channel-label .other::before { content: " · "; display: inline-block; white-space: pre; text-decoration: none; }
 .card h2 { margin: 4px 0 2px; font-size: 1.5rem; line-height: 1.2; }
 .ep-line { margin: 0 0 12px; font-size: 1.05rem; }
 .code {
