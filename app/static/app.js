@@ -35,7 +35,16 @@ function showNotice(node, msg, isError = false) {
 let currentView = null;
 let viewBeforeCredits = null;
 
+// Each screen change is a browser history entry, so the browser's back button
+// (or a back swipe) and the ← button both step back through the same screens.
+const ROOT_VIEWS = ["channels", "login"];
+let restoringView = false; // true while showing a view because of browser back/forward
+
 function showView(name) {
+  if (!restoringView && name !== currentView) {
+    if (ROOT_VIEWS.includes(name)) history.replaceState({ view: name, depth: 0 }, "");
+    else history.pushState({ view: name, depth: (history.state?.depth || 0) + 1 }, "");
+  }
   currentView = name;
   for (const v of ["login", "channels", "pick", "shows", "settings", "credits"]) $(`${v}-view`).hidden = v !== name;
   $("back").hidden = name === "channels" || name === "login";
@@ -523,6 +532,7 @@ $("play").addEventListener("click", playOnTv);
 $("p-more").addEventListener("click", toggleOverview);
 $("shows-btn").addEventListener("click", () => loadShows());
 $("back").addEventListener("click", () => {
+  if (history.state?.depth > 0) return history.back(); // handled by popstate below
   if (currentView === "credits") {
     // Return to where Credits was opened from (e.g. the login screen or a pick).
     const back = me ? viewBeforeCredits : "login";
@@ -536,6 +546,31 @@ $("back").addEventListener("click", () => {
   loadChannels();
 });
 $("credits-link").addEventListener("click", openCredits);
+
+// Browser back/forward (and the ← button, via history.back()).
+window.addEventListener("popstate", (e) => {
+  const target = e.state?.view || "channels";
+  if (target === currentView) return;
+  // Leaving Settings / All shows for anywhere but each other: ask about unsaved edits.
+  if (EDIT_VIEWS.includes(currentView) && !EDIT_VIEWS.includes(target) && !settingsCanLeave()) {
+    history.pushState({ view: currentView, depth: (e.state?.depth || 0) + 1 }, ""); // stay put
+    return;
+  }
+  restoringView = true;
+  try {
+    if (!me) return showLogin(setupMode);
+    if (target === "pick" && current) returnToPick();
+    else if (target === "shows") loadShows();
+    else if (target === "settings") openSettings();
+    else if (target === "credits") showView("credits");
+    else {
+      showView("channels");
+      loadChannels();
+    }
+  } finally {
+    restoringView = false; // each target shows its view before its first await
+  }
+});
 
 $("login-form").addEventListener("submit", submitLogin);
 
