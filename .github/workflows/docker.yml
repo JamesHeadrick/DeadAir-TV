@@ -1,0 +1,115 @@
+# Tests, then builds the Docker image for arm64 (Raspberry Pi) and amd64 and
+# publishes it to GitHub Container Registry:
+#   - every push to main          -> ghcr.io/<owner>/<repo>:latest
+#   - a git tag like v1.2.3       -> :1.2.3, :1.2 and :1
+#   - pull requests               -> build only (nothing is published)
+# After the first publish, make the package public once under
+# GitHub > Your profile > Packages > deadair-tv > Package settings.
+name: Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Registry paths must be lowercase; the repo is "JamesHeadrick/DeadAir-TV".
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3   # lets the amd64 runner build arm64
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+          labels: |
+            org.opencontainers.image.title=DeadAir
+            org.opencontainers.image.description=Self-hosted random episode channels for your streaming services
+
+      # Run the real image the way a user would before publishing anything.
+      - name: Build amd64 image for the smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: deadair:smoke
+          cache-from: type=gha
+
+      - name: Smoke test
+        run: |
+          set -eux
+          # Root-owned folders, exactly what Docker creates for missing bind mounts.
+          sudo mkdir -p smoke/config smoke/data
+          docker run -d --name smoke -p 8000:8000 \
+            -v "$PWD/smoke/config:/config" -v "$PWD/smoke/data:/data" \
+            -e ADMIN_USER=admin -e ADMIN_PASSWORD=smoketest1 \
+            deadair:smoke
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:8000/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/healthz
+          # The admin from the environment can log in.
+          curl -fsS -X POST http://127.0.0.1:8000/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"username":"admin","password":"smoketest1"}'
+          # The app runs unprivileged and owns its data.
+          docker exec smoke sh -c 'grep "^Uid:" /proc/1/status' | grep -qE '^Uid:\s+1000\s'
+          test "$(stat -c %u smoke/data/deadair.db)" = 1000
+          # The recovery CLI (run as root by `docker exec`) leaves no root-owned files.
+          docker exec smoke python -m app.manage list-users | grep -q admin
+          test -z "$(find smoke/data -user root)"
+
+      - name: Container logs
+        if: failure()
+        run: docker logs smoke || true
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

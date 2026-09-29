@@ -1,0 +1,30 @@
+# DeadAir - uses the prebuilt image (arm64 + amd64).
+#   docker compose up -d                          # first start
+#   docker compose pull && docker compose up -d   # update
+# To build from source instead, see docker-compose.build.yml.
+services:
+  deadair-tv:
+    image: ghcr.io/jamesheadrick/deadair-tv:latest   # or :1 to stay on 1.x releases
+    container_name: deadair-tv
+    restart: unless-stopped
+    environment:
+      # Replace each ${...} with your value, or put the values in a .env file
+      # next to this one (e.g. TMDB_API_KEY=abc123).
+      TMDB_API_KEY: ${TMDB_API_KEY:-}        # required: your own free key from themoviedb.org
+      # Optional: creates the first admin at startup if there are no users yet
+      # (otherwise the first visitor sets it up in the browser).
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    env_file:
+      # Optional extra settings (WATCH_REGION, ENABLE_ADB, TV_IP, ...); see .env.example.
+      - path: .env
+        required: false
+    volumes:
+      # Folders are created automatically. A directory (not a single file) so
+      # the Settings page can save atomically.
+      - ./config:/config
+      - ./data:/data
+    # Expose only if you're not putting it on the same Docker network as
+    # Nginx Proxy Manager (in that case, proxy to http://deadair-tv:8000).
+    ports:
+      - "8000:8000"

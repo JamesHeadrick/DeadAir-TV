@@ -1,0 +1,7 @@
+.git
+data
+tests
+**/__pycache__
+.env
+config.yaml
+config/
