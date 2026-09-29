@@ -812,3 +812,11 @@ def test_version_is_public(client, monkeypatch):
     assert res.json()["version"] == "pr-3"
     # The CI smoke test greps for this exact compact form.
     assert '"commit":"1a3607a"' in res.text
+
+
+def test_ui_files_are_revalidated(client):
+    """Browsers must not run a stale app.js against a new index.html."""
+    for path in ("/", "/static/app.js", "/static/style.css"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    etag = client.get("/static/app.js").headers["etag"]
+    assert client.get("/static/app.js", headers={"If-None-Match": etag}).status_code == 304

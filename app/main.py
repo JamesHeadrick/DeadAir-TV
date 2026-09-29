@@ -223,6 +223,20 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     app = FastAPI(title="DeadAir", lifespan=lifespan)
 
     @app.middleware("http")
+    async def revalidate_ui(request: Request, call_next):
+        """Make browsers check for a new page/JS/CSS on every load.
+
+        Without a Cache-Control header they cache static files for a guessed
+        time, so after an update the new page could run with old JS. Unchanged
+        files still come back as a cheap 304 via their ETag.
+        """
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.middleware("http")
     async def require_login(request: Request, call_next):
         """Every /api route needs a valid session unless listed in PUBLIC_API."""
         path = request.url.path
