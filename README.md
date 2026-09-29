@@ -153,7 +153,8 @@ Viewers see the same list without the editing controls. Settings has the rest:
 
 - **Your services**: search TMDB's provider list for your region and tap to
   add, so the names always match what TMDB reports. The order they're listed
-  in is the order watch options are shown in.
+  in is the order watch options are shown in, except that services with a
+  link that opens the show come before ones that can only search for it.
 - **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
 - **Channels**: every channel in use, with an optional emoji (pick from
   suggestions or type your own), plus **Rename** and **Delete**, which apply

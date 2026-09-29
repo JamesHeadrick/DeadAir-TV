@@ -106,6 +106,10 @@ def _lookup(mapping: dict[str, str], provider_name: str) -> str | None:
     return None
 
 
+# Watch options that open the show itself sort ahead of searches.
+SOURCE_RANK = {"manual": 0, "auto": 0, "search": 1, "tmdb": 2}
+
+
 @dataclass
 class WatchOption:
     provider_id: int | None
@@ -176,12 +180,11 @@ def compute_access(
 
     for tier, found in tiers:
         if found:
-            return Access(
-                checked=True,
-                tier=tier,
-                options=[_option(cfg, show, show_name, p, providers.get("link"), auto_links or {}) for p in found],
-                other_subscriptions=others,
-            )
+            options = [_option(cfg, show, show_name, p, providers.get("link"), auto_links or {}) for p in found]
+            # Services whose link opens the show come before ones that only
+            # search; your service order decides within each group (stable sort).
+            options.sort(key=lambda o: SOURCE_RANK[o.source])
+            return Access(checked=True, tier=tier, options=options, other_subscriptions=others)
     return Access(checked=True, other_subscriptions=others)
 
 

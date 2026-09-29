@@ -827,6 +827,19 @@ def test_link_priority_manual_then_auto_then_search():
     assert opts["Netflix"].source == "search" and "search?q=Some+Show" in opts["Netflix"].url
 
 
+def test_openable_services_come_before_searches():
+    # Prime is higher in your list, but only Hulu has a link to the show itself.
+    cfg = AppConfig(services=["Amazon Prime Video", "Netflix", "Hulu", "Fubo"])
+    providers = {"flatrate": _prov("Amazon Prime Video", "Netflix", "Hulu", "Fubo")}
+    show = ShowConfig(3452, ("x",), links={"Netflix": "https://www.netflix.com/title/1"})
+    auto = {"Hulu": "https://www.hulu.com/series/frasier"}
+    opts = compute_access(cfg, show, "Frasier", providers, auto).options
+    assert [(o.provider_name, o.source) for o in opts] == [
+        ("Netflix", "manual"), ("Hulu", "auto"),              # openable, in your order
+        ("Amazon Prime Video", "search"), ("Fubo", "tmdb"),  # then searches, then TMDB's page
+    ]
+
+
 def test_config_api_reports_open_link_fallbacks(client):
     db = main.state.db
     db.set_auto_links({1: {"Netflix": "https://www.netflix.com/title/111"}}, [1, 2])
