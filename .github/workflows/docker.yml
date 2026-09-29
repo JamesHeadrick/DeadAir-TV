@@ -1,7 +1,7 @@
 # Tests, then builds the Docker image for arm64 (Raspberry Pi) and amd64 and
 # publishes it to GitHub Container Registry:
 #   - every push to main          -> ghcr.io/<owner>/<repo>:latest
-#   - a git tag like v1.2.3       -> :1.2.3, :1.2 and :1
+#   - a git tag like v1.2.3       -> :1.2.3, :1.2 and :1, plus a GitHub Release
 #   - pull requests from this repo -> :pr-<number>, for testing before merging
 #   - pull requests from forks     -> build only (they get no write token)
 # The package is linked to this repo (via the image's source label) and
@@ -135,3 +135,24 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # A version tag also gets a GitHub Release (notes generated from the merged
+  # PRs). The app's update check looks for these.
+  release:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists."
+          else
+            gh release create "$TAG" --verify-tag --generate-notes --title "DeadAir $TAG"
+          fi

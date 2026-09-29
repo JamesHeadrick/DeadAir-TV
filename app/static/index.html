@@ -87,7 +87,12 @@
   </section>
 
   <section id="shows-view" hidden>
+    <p id="shows-error" class="notice" hidden></p>
     <p id="my-services" class="notice"></p>
+    <div class="admin-only show-add">
+      <input id="show-search" class="field" type="search" placeholder="Add a show: search TMDB…" autocomplete="off">
+      <div id="search-results" class="pick-list"></div>
+    </div>
     <ul id="show-list" class="show-list"></ul>
   </section>
 
@@ -125,15 +130,8 @@
     </section>
 
     <section class="panel admin-only">
-      <h2>Shows</h2>
-      <input id="show-search" class="field" type="search" placeholder="Search TMDB to add a show…" autocomplete="off">
-      <div id="search-results" class="pick-list"></div>
-      <ul id="settings-shows" class="show-list"></ul>
-    </section>
-
-    <section class="panel admin-only">
       <h2>Channels</h2>
-      <p class="hint">Channels come from the tags on your shows. Give one an emoji, or rename or delete it on every show at once.</p>
+      <p class="hint">Channels come from the tags on your shows (edit those under All shows). Give one an emoji, or rename or delete it on every show at once.</p>
       <ul id="channel-list" class="channel-list"></ul>
     </section>
 
@@ -167,11 +165,6 @@
       <button id="add-search-url" class="btn small">Add search link</button>
     </details>
 
-    <div id="save-bar" class="save-bar" hidden>
-      <span id="save-status">Unsaved changes</span>
-      <button id="discard" class="btn small">Discard</button>
-      <button id="save" class="btn small primary">Save</button>
-    </div>
   </section>
 
   <section id="credits-view" hidden>
@@ -199,16 +192,22 @@
         <li><a href="https://game-icons.net/1x1/delapouite/clockwise-rotation.html" target="_blank" rel="noopener">Clockwise rotation</a>
           by Delapouite (Another episode button)</li>
       </ul>
-
-      <h3>Version</h3>
-      <p id="app-version">…</p>
     </section>
   </section>
+
+  <!-- Shared by Settings and All shows: both edit the same config. -->
+  <div id="save-bar" class="save-bar" hidden>
+    <span id="save-status">Unsaved changes</span>
+    <button id="discard" class="btn small">Discard</button>
+    <button id="save" class="btn small primary">Save</button>
+  </div>
 </main>
 
 <footer>
   <p>Where-to-watch data by <a href="https://www.justwatch.com/" target="_blank" rel="noopener">JustWatch</a>
     · <a href="#credits" id="credits-link">Credits</a></p>
+  <p id="build-info" class="build-info"></p>
+  <p id="update-info" class="update-info" hidden></p>
 </footer>
 
 <script src="static/app.js"></script>

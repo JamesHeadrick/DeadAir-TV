@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import json
 import re
 import random
@@ -11,7 +12,7 @@ import yaml
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main
+from app import main, updates
 from app.access import compute_access, names_match
 from app.config import (
     AppConfig, ConfigError, Settings, ShowConfig, dump_config, load_config, parse_config, save_config,
@@ -825,3 +826,78 @@ def test_ui_files_are_revalidated(client):
     assert re.search(r'href="static/style\.css\?v=[0-9a-f]{10}"', page)
     etag = client.get("/static/app.js").headers["etag"]
     assert client.get("/static/app.js", headers={"If-None-Match": etag}).status_code == 304
+
+
+# --- update check ---------------------------------------------------------------
+
+def _github(latest_tag="v1.3.0", ahead_by=0, calls=None, fail=False):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if calls is not None:
+            calls.append(request.url.path)
+        if fail:
+            return httpx.Response(503)
+        if request.url.path.endswith("/releases/latest"):
+            if latest_tag is None:
+                return httpx.Response(404, json={"message": "Not Found"})
+            return httpx.Response(200, json={
+                "tag_name": latest_tag, "html_url": f"https://github.com/x/releases/tag/{latest_tag}"})
+        if "/compare/" in request.url.path:
+            return httpx.Response(200, json={"ahead_by": ahead_by, "status": "ahead" if ahead_by else "identical"})
+        return httpx.Response(404)
+    return httpx.MockTransport(handler)
+
+
+def test_update_check_for_releases():
+    def check(version, **kw):
+        return asyncio.run(updates.check(version, "abc1234", _github(**kw)))
+    newer = check("v1.2.0")
+    assert newer["available"] and newer["latest"] == "v1.3.0" and newer["url"].endswith("/v1.3.0")
+    assert check("v1.3.0")["available"] is False
+    assert check("1.10.0", latest_tag="v1.9.0")["available"] is False  # numeric, not string, order
+    assert check("v1.2.0", latest_tag=None) == {"available": False, "latest": None, "url": None, "behind": None}
+
+
+def test_update_check_for_main_builds():
+    calls = []
+    res = asyncio.run(updates.check("main", "abc1234def", _github(ahead_by=3, calls=calls)))
+    assert res["available"] and res["behind"] == 3 and res["url"].endswith("/compare/abc1234...main")
+    assert calls == ["/repos/JamesHeadrick/DeadAir-TV/compare/abc1234def...main"]
+    assert asyncio.run(updates.check("main", "abc", _github(ahead_by=0)))["available"] is False
+    # Test builds aren't checked at all.
+    for version, commit in (("pr-3", "abc"), ("dev", None), ("main", None), ("v1.2.0-rc1", "abc")):
+        assert asyncio.run(updates.check(version, commit, _github(fail=True))) is None
+
+
+def test_update_checker_caches_and_survives_failures(monkeypatch):
+    now = [1_000_000.0]
+    monkeypatch.setattr(updates.time, "time", lambda: now[0])
+    calls = []
+    checker = updates.UpdateChecker("v1.0.0", "abc", _github(calls=calls))
+    assert asyncio.run(checker.get())["update"]["available"]
+    asyncio.run(checker.get())
+    assert len(calls) == 1  # cached
+
+    checker.transport = _github(calls=calls, fail=True)
+    now[0] += updates.CHECK_EVERY_S
+    assert asyncio.run(checker.get())["update"]["latest"] == "v1.3.0"  # GitHub down: keep the last answer
+    now[0] += 60
+    asyncio.run(checker.get())
+    assert len(calls) == 2  # and don't retry for a while
+    now[0] += updates.RETRY_AFTER_S
+    asyncio.run(checker.get())
+    assert len(calls) == 3
+
+
+def test_updates_endpoint(client, monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "main")
+    monkeypatch.setenv("GIT_COMMIT", "abc1234def")
+    monkeypatch.setattr(main.state, "updates", updates.UpdateChecker("main", "abc1234def", _github(ahead_by=2)))
+    res = client.get("/api/updates").json()
+    assert res["enabled"] and res["update"]["behind"] == 2
+
+    monkeypatch.setattr(main.state, "settings", dataclasses.replace(main.state.settings, update_check=False))
+    assert client.get("/api/updates").json() == {"enabled": False, "update": None, "checked_at": None}
+
+    client.post("/api/users", json={"username": "kid", "password": "kidpass123"})
+    _login_as(client, "kid", "kidpass123")
+    assert client.get("/api/updates").status_code == 403  # admins only

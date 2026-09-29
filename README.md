@@ -82,8 +82,8 @@ They can go in the same `environment:` block. The repo's own
 users and history live in `config/` and `data/`, outside the container.
 `:latest` follows the main branch. To only get releases, set
 `DEADAIR_IMAGE=ghcr.io/jamesheadrick/deadair-tv:1` in `.env` (every 1.x
-release), or pin an exact one like `:1.0.0`. The running version is shown at
-the bottom of the **Credits** page.
+release), or pin an exact one like `:1.0.0`. The running version is shown in
+the footer, and admins get a notice there when a newer one is out.
 
 ### Testing a pull request
 
@@ -107,7 +107,7 @@ docker build -t deadair-tv:local https://github.com/JamesHeadrick/DeadAir-TV.git
 DEADAIR_IMAGE=deadair-tv:local docker compose up -d
 ```
 
-Local builds show version `dev` on the Credits page unless you pass the build
+Local builds show version `dev` in the footer unless you pass the build
 info, e.g. `--build-arg APP_VERSION=my-branch --build-arg GIT_COMMIT=<sha>`.
 
 ### Building from source
@@ -135,17 +135,22 @@ unencrypted.
 
 ## Configuration
 
-### Settings page (⚙)
+### All shows and Settings (⚙)
 
-Everything in `config.yaml` can be edited from the web UI:
+Everything in `config.yaml` can be edited from the web UI. For admins, **All
+shows** is where shows are managed:
+
+- **Add a show**: search TMDB by name at the top of the page.
+- **Edit**: on each show, change its channel tags (pick an existing channel or
+  type a new one), its weight, a display name, and its Open links, or remove
+  it. Each show also lists where you can watch it.
+
+Viewers see the same list without the editing controls. Settings has the rest:
 
 - **Your services**: search TMDB's provider list for your region and tap to
   add, so the names always match what TMDB reports. The order they're listed
   in is the order watch options are shown in.
 - **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
-- **Shows**: search TMDB by name to add a show. For each show you can edit its
-  channel tags (pick an existing channel or type a new one), its weight, a
-  display name, and its Open links.
 - **Channels**: every channel in use, with an optional emoji (pick from
   suggestions or type your own), plus **Rename** and **Delete**, which apply
   to every show tagged with that channel. Renaming onto an existing channel
@@ -153,10 +158,11 @@ Everything in `config.yaml` can be edited from the web UI:
 - **Watched & skipped**: set the cooldown length and clear the history.
 - **Search links**: add or override a service's search URL.
 
-Saving rewrites `config/config.yaml` and keeps the previous version as
-`config.yaml.bak`. Comments in the file don't survive a save from the UI. If
-the file changed on disk since you opened Settings, the save is refused, so
-you don't overwrite someone else's changes.
+Both pages share one **Save** bar, and unsaved edits carry over when you
+switch between them. Saving rewrites `config/config.yaml` and keeps the
+previous version as `config.yaml.bak`. Comments in the file don't survive a
+save from the UI. If the file changed on disk since you started editing, the
+save is refused, so you don't overwrite someone else's changes.
 
 ### `config.yaml`
 
@@ -237,6 +243,7 @@ next to it.
 | `ADB_PORT` | `5555` | |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | – | create the first admin at startup (only when no users exist) |
 | `WIKIDATA_LINKS` | `true` | look up show-page links on Wikidata (see Open links) |
+| `UPDATE_CHECK` | `true` | check GitHub daily for a newer version (see Update notice) |
 | `DEADAIR_IMAGE` | `ghcr.io/jamesheadrick/deadair-tv:latest` | image to run (read by docker-compose.yml, not the app) |
 | `PUID` / `PGID` | `1000` | user/group the app runs as; the `config` and `data` folders are handed to it on start |
 
@@ -300,11 +307,27 @@ builds the image for arm64 and amd64:
   (see Testing a pull request). Pull requests from forks are built but not
   published.
 - **Push to `main`:** publishes `ghcr.io/jamesheadrick/deadair-tv:latest`.
-- **Tag `vX.Y.Z`:** publishes `X.Y.Z`, `X.Y` and `X`. For example:
+- **Tag `vX.Y.Z`:** publishes `X.Y.Z`, `X.Y` and `X`, then creates a GitHub
+  Release with notes generated from the merged pull requests. For example:
 
   ```sh
   git tag v1.0.0 && git push origin v1.0.0
   ```
+
+### Update notice
+
+The footer shows the running version (e.g. `DeadAir v1.2.0 · a1b2c3d`). Once a
+day the server asks GitHub whether there's something newer, and admins see a
+link in the footer when there is:
+
+- **Release images** (`v1.2.0`, or tags like `:1`): *Update available: v1.3.0*,
+  linked to the release notes.
+- **`latest`** (built from main): *3 new commits on main*, linked to the list
+  of changes.
+- **Pull request and local builds** aren't checked.
+
+It's one anonymous request to GitHub's public API, which for main builds
+includes the commit being compared. Set `UPDATE_CHECK=false` to turn it off.
 
 The package is linked to this repository, so it has the same visibility
 as the repo: this repo is public, so the image is public and anyone can
