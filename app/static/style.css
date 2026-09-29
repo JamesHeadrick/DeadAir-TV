@@ -350,9 +350,11 @@ main {
 .service-row .btn.small:disabled { opacity: .3; cursor: default; }
 .settings-show { flex-direction: column; }
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
-.settings-show .head .poster { width: 40px; }
 .settings-show .head .grow { flex: 1; min-width: 0; }
-.settings-show .head .tag { color: var(--muted); padding: 0 6px; }
+.settings-show .head { align-items: flex-start; }
+.settings-show .head .tag { flex: none; color: var(--accent); background: var(--surface-2); border-radius: 8px; padding: 4px 10px; font-size: .85rem; }
+.show-add { margin-bottom: 12px; }
+.show-add .pick-list:not(:empty) { margin-top: 8px; }
 .settings-show .editor { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
 .settings-show .editor label { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
 .settings-show .row2 { display: flex; gap: 8px; }
@@ -423,6 +425,8 @@ footer p { margin: 4px 0; }
 .credit-list { margin: 6px 0 0; padding-left: 20px; }
 .credit-list li { margin: 4px 0; }
 footer a { color: var(--muted); }
+footer .build-info { opacity: .8; }
+footer .update-info a { color: var(--accent); font-weight: 600; text-decoration: none; }
 .tmdb-logo {
   display: inline-block;
   font-weight: 800;

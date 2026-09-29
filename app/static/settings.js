@@ -1,11 +1,13 @@
 "use strict";
-// Settings screen: edits config.yaml through GET/PUT api/config.
-// Uses $, el, api, showView from app.js.
+// Settings and the admin side of All shows: both edit config.yaml through
+// GET/PUT api/config, sharing one draft and one save bar.
+// Uses $, el, api, showView, currentView, accessBits from app.js.
 
 let draft = null;        // working copy of the config
 let savedJson = "";      // last saved state, for dirty tracking
 let providers = null;    // TMDB provider list (name, logo) for your region
 let expanded = new Set(); // tmdb_ids whose editor is open
+let showInfo = new Map(); // tmdb_id -> api/shows entry (where to watch), for All shows
 
 const isDirty = () => draft && JSON.stringify(stripped(draft)) !== savedJson;
 
@@ -23,8 +25,42 @@ function stripped(d) {
   };
 }
 
+const EDIT_VIEWS = ["settings", "shows"];
+
+// The notice at the top of whichever editing page is showing.
+const configNotice = () => $(currentView === "shows" ? "shows-error" : "settings-error");
+
+// Call before leaving Settings / All shows for anywhere else.
 function settingsCanLeave() {
-  return !isDirty() || confirm("Discard unsaved settings changes?");
+  if (!isDirty()) return true;
+  if (!confirm("Discard unsaved changes?")) return false;
+  draft = null;
+  updateSaveBar();
+  return true;
+}
+
+function updateSaveBar() {
+  $("save-bar").hidden = !isDirty() || !EDIT_VIEWS.includes(currentView);
+}
+
+// Load the config for editing, keeping unsaved edits when moving between
+// Settings and All shows.
+async function ensureDraft() {
+  if (isDirty()) return true;
+  try {
+    draft = await api("api/config");
+  } catch (e) {
+    draft = null;
+    showNotice(configNotice(), `Couldn't load settings: ${e.message}`, true);
+    return false;
+  }
+  savedJson = JSON.stringify(stripped(draft));
+  expanded = new Set();
+  if (draft.config_error) {
+    showNotice(configNotice(),
+      `config.yaml has an error (${draft.config_error}). Showing the last good version; saving will overwrite the file.`, true);
+  }
+  return true;
 }
 
 async function openSettings() {
@@ -32,8 +68,6 @@ async function openSettings() {
   showNotice($("settings-error"), "");
   $("me-name").textContent = me.username;
   $("me-role").textContent = me.is_admin ? " (admin)" : "";
-  draft = null;
-  $("save-bar").hidden = true;
   if (!me.is_admin) {
     api("api/channels").then((d) => {
       $("cooldown-text").textContent = `for ${d.cooldown_days} days`;
@@ -41,26 +75,26 @@ async function openSettings() {
     return;
   }
   loadUsers();
-  try {
-    draft = await api("api/config");
-    savedJson = JSON.stringify(stripped(draft));
-    if (draft.config_error) {
-      showNotice($("settings-error"),
-        `config.yaml has an error (${draft.config_error}). Showing the last good version; saving will overwrite the file.`, true);
-    }
-  } catch (e) {
-    showNotice($("settings-error"), `Couldn't load settings: ${e.message}`, true);
-    return;
-  }
-  expanded = new Set();
+  if (!(await ensureDraft())) return;
   renderSettings();
   loadProviders();
 }
 
+// All shows, admin version: every show from the draft, with where-to-watch
+// info from api/shows and an editor per show.
+async function openShowsEditor(shows) {
+  showInfo = new Map(shows.map((s) => [s.tmdb_id, s]));
+  if (await ensureDraft()) {
+    renderShows();
+    changed();
+  }
+}
+
 function changed() {
   if (!draft) return;
-  if ($("settings-error").classList.contains("error") && !draft.config_error) showNotice($("settings-error"), "");
-  $("save-bar").hidden = !isDirty();
+  const notice = configNotice();
+  if (notice.classList.contains("error") && !draft.config_error) showNotice(notice, "");
+  updateSaveBar();
   $("save-status").textContent = "Unsaved changes";
 }
 
@@ -202,9 +236,10 @@ function renderSearchResults(results) {
 
 function renderShows() {
   renderChannelSettings(); // show tags define the channels, so keep that panel in sync
-  const list = $("settings-shows");
+  if (currentView !== "shows") return;
+  const list = $("show-list");
   if (!draft.shows.length) {
-    return list.replaceChildren(el("li", { className: "hint", textContent: "No shows yet. Search above to add one." }));
+    return list.replaceChildren(el("li", { className: "notice", textContent: "No shows yet. Search above to add one." }));
   }
   list.replaceChildren(...draft.shows.map(showRow));
 }
@@ -393,17 +428,21 @@ function openLinksEditor(show, rerender) {
 
 function showRow(show) {
   const open = expanded.has(show.tmdb_id);
+  const info = showInfo.get(show.tmdb_id);
+  const searchOnly = searchOnlyServices(show);
+  const poster = show.poster_url || info?.poster_url;
   const head = el("button", { className: "head", ariaExpanded: String(open) },
-    show.poster_url ? el("img", { className: "poster", src: show.poster_url, alt: "" }) : el("div", { className: "poster" }),
+    poster ? el("img", { className: "poster", src: poster, alt: "" }) : el("div", { className: "poster" }),
     el("div", { className: "grow" },
       el("h3", { textContent: showTitle(show) }),
       show.channels.length
         ? el("p", { textContent: show.channels.join(" · ") + (show.weight !== 1 ? ` · weight ${show.weight}` : "") })
         : el("p", { className: "warn-text", textContent: "Pick at least one channel" }),
-      searchOnlyServices(show).length
-        ? el("p", { className: "search-only", textContent: `Opens a search on ${searchOnlyServices(show).join(", ")}` })
+      ...(info ? accessBits(info.access) : [el("p", { textContent: "New: where to watch is checked after saving" })]),
+      searchOnly.length
+        ? el("p", { className: "search-only", textContent: `Opens a search on ${searchOnly.join(", ")}` })
         : null),
-    el("span", { className: "tag", textContent: open ? "▲" : "▼" }));
+    el("span", { className: "tag", textContent: open ? "Done" : "Edit" }));
   head.addEventListener("click", () => {
     open ? expanded.delete(show.tmdb_id) : expanded.add(show.tmdb_id);
     renderShows();
@@ -530,7 +569,8 @@ function validate() {
   if (missing.length) {
     missing.forEach((s) => expanded.add(s.tmdb_id));
     renderShows();
-    return `Give these shows a channel: ${missing.map(showTitle).join(", ")}`;
+    const where = currentView === "shows" ? "" : " (under All shows)";
+    return `Give these shows a channel${where}: ${missing.map(showTitle).join(", ")}`;
   }
   const emptyLinks = draft.shows.filter((s) => Object.entries(s.links).some(([k, v]) => !k || !v));
   if (emptyLinks.length) return `Fill in or remove the empty Open links on: ${emptyLinks.map(showTitle).join(", ")}`;
@@ -541,9 +581,10 @@ function validate() {
 }
 
 async function save() {
+  const notice = configNotice();
   const problem = validate();
-  if (problem) return showNotice($("settings-error"), problem, true);
-  showNotice($("settings-error"), "");
+  if (problem) return showNotice(notice, problem, true);
+  showNotice(notice, "");
   $("save").disabled = true;
   $("save-status").textContent = "Saving…";
   try {
@@ -555,13 +596,26 @@ async function save() {
     draft.version = res.version;
     savedJson = JSON.stringify(stripped(draft));
     changed();
-    showNotice($("settings-error"), "Saved. New shows will appear once their episodes are fetched (a few seconds each).");
+    showNotice(notice, "Saved. New shows will appear once their episodes are fetched (a few seconds each).");
+    if (currentView === "shows") refreshShowInfo();
   } catch (e) {
     $("save-status").textContent = "Unsaved changes";
-    showNotice($("settings-error"), `Save failed: ${e.message}`, true);
+    showNotice(notice, `Save failed: ${e.message}`, true);
   } finally {
     $("save").disabled = false;
   }
+}
+
+// After saving on All shows: pick up where-to-watch info and link fallbacks for new shows.
+async function refreshShowInfo() {
+  try {
+    const [{ shows }, fresh] = await Promise.all([api("api/shows"), api("api/config")]);
+    if (isDirty()) return; // edited again meanwhile; keep those edits
+    showInfo = new Map(shows.map((s) => [s.tmdb_id, s]));
+    draft = fresh;
+    savedJson = JSON.stringify(stripped(draft));
+    renderShows();
+  } catch { /* the list just stays as it is */ }
 }
 
 // --- account & users ------------------------------------------------------------
@@ -645,7 +699,7 @@ async function addUser(e) {
 
 // --- wiring -----------------------------------------------------------------
 
-$("settings-btn").addEventListener("click", () => settingsCanLeave() && openSettings());
+$("settings-btn").addEventListener("click", openSettings); // from All shows, unsaved edits come along
 $("provider-filter").addEventListener("input", renderProviderList);
 $("provider-filter").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -683,7 +737,11 @@ $("password-form").addEventListener("submit", changePassword);
 $("logout").addEventListener("click", logout);
 $("add-user-form").addEventListener("submit", addUser);
 $("discard").addEventListener("click", () => {
-  if (confirm("Discard unsaved changes?")) openSettings();
+  if (!confirm("Discard unsaved changes?")) return;
+  draft = null;
+  updateSaveBar();
+  if (currentView === "shows") loadShows();
+  else openSettings();
 });
 window.addEventListener("beforeunload", (e) => {
   if (isDirty()) e.preventDefault();

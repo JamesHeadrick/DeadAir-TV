@@ -41,6 +41,7 @@ from .db import Database
 from .picker import pick_episode
 from .sync import Syncer
 from .tmdb import TMDBClient, image_url
+from .updates import UpdateChecker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("deadair")
@@ -78,6 +79,7 @@ class State:
     tmdb: TMDBClient | None = None
     syncer: Syncer | None = None
     provider_list: tuple[float, list[dict]] | None = None
+    updates: UpdateChecker | None = None
 
 
 state = State()
@@ -383,13 +385,17 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     @app.get("/api/version")
     async def version():
         """Build info baked into the image by CI (see the Dockerfile's build args)."""
-        commit = os.environ.get("GIT_COMMIT", "").strip()
-        return {
-            "version": os.environ.get("APP_VERSION", "").strip() or "dev",
-            "commit": commit[:7] or None,
-            "commit_full": commit or None,
-            "built": os.environ.get("BUILD_DATE", "").strip() or None,
-        }
+        return _build_info()
+
+    @app.get("/api/updates")
+    async def updates(_: User = Depends(admin_user)):
+        """Whether a newer DeadAir is out (admins only; cached, GitHub is asked daily)."""
+        if not state.settings.update_check:
+            return {"enabled": False, "update": None, "checked_at": None}
+        info = _build_info()
+        if state.updates is None or (state.updates.version, state.updates.commit) != (info["version"], info["commit_full"]):
+            state.updates = UpdateChecker(info["version"], info["commit_full"])
+        return {"enabled": True, **await state.updates.get()}
 
     @app.get("/api/channels")
     async def channels():
@@ -664,6 +670,16 @@ def _auto_links(row) -> dict[str, str]:
         return json.loads(row["links_json"] or "{}") if row else {}
     except (KeyError, IndexError, ValueError):
         return {}
+
+
+def _build_info() -> dict:
+    commit = os.environ.get("GIT_COMMIT", "").strip()
+    return {
+        "version": os.environ.get("APP_VERSION", "").strip() or "dev",
+        "commit": commit[:7] or None,
+        "commit_full": commit or None,
+        "built": os.environ.get("BUILD_DATE", "").strip() or None,
+    }
 
 
 def _public(info: dict) -> dict:

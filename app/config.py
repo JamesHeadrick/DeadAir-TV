@@ -29,9 +29,10 @@ class Settings:
     enable_adb: bool = False
     tv_ip: str = ""
     adb_port: int = 5555
+    wikidata_links: bool = True  # look up show-page links on Wikidata
+    update_check: bool = True    # ask GitHub daily whether a newer DeadAir exists
     # Creates the first admin at startup if there are no users yet. Without
     # these, the first visitor is asked to create the admin account.
-    wikidata_links: bool = True  # look up show-page links on Wikidata
     admin_user: str = ""
     admin_password: str = ""
 
@@ -48,6 +49,7 @@ class Settings:
             tv_ip=os.environ.get("TV_IP", "").strip(),
             adb_port=int(os.environ.get("ADB_PORT", "5555")),
             wikidata_links=_env_bool("WIKIDATA_LINKS", True),
+            update_check=_env_bool("UPDATE_CHECK", True),
             admin_user=os.environ.get("ADMIN_USER", "").strip(),
             admin_password=os.environ.get("ADMIN_PASSWORD", ""),
         )

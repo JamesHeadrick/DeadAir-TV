@@ -41,34 +41,49 @@ function showView(name) {
   $("back").hidden = name === "channels" || name === "login";
   $("shows-btn").hidden = ["shows", "settings", "login", "credits"].includes(name) || !me;
   $("settings-btn").hidden = name === "settings" || name === "login" || !me;
+  updateSaveBar();
 }
 
 function openCredits(e) {
   e.preventDefault();
   if (currentView === "credits") return;
-  if (currentView === "settings" && !settingsCanLeave()) return;
+  if (EDIT_VIEWS.includes(currentView) && !settingsCanLeave()) return;
   viewBeforeCredits = currentView;
   showView("credits");
   window.scrollTo(0, 0);
-  loadVersion();
 }
 
+// --- footer: version, and (for admins) whether a newer one is out -------------
+
+const REPO_URL = "https://github.com/JamesHeadrick/DeadAir-TV";
+
 async function loadVersion() {
-  const node = $("app-version");
   try {
     const v = await api("api/version");
-    const parts = [v.version];
+    const parts = [`DeadAir ${v.version}`];
     if (v.commit) {
-      parts.push(el("a", {
-        href: `https://github.com/JamesHeadrick/DeadAir-TV/commit/${v.commit_full}`,
-        target: "_blank", rel: "noopener", textContent: v.commit,
-      }));
+      parts.push(el("a", { href: `${REPO_URL}/commit/${v.commit_full}`, target: "_blank", rel: "noopener", textContent: v.commit }));
     }
-    if (v.built) parts.push(`built ${v.built.slice(0, 10)}`);
-    node.replaceChildren(...parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
+    $("build-info").replaceChildren(...parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
+    $("build-info").title = v.built ? `Built ${v.built.slice(0, 10)}` : "";
   } catch {
-    node.textContent = "Unknown";
+    $("build-info").replaceChildren();
   }
+}
+
+async function checkForUpdate() {
+  const node = $("update-info");
+  node.hidden = true;
+  if (!me?.is_admin) return;
+  try {
+    const { update } = await api("api/updates");
+    if (!update?.available) return;
+    const text = update.behind != null
+      ? `${update.behind} new commit${update.behind === 1 ? "" : "s"} on main`
+      : `Update available: ${update.latest}`;
+    node.replaceChildren(el("a", { href: update.url, target: "_blank", rel: "noopener", textContent: `⬆ ${text}` }));
+    node.hidden = false;
+  } catch { /* no notice if GitHub or the check is unavailable */ }
 }
 
 // --- login ------------------------------------------------------------------
@@ -78,6 +93,7 @@ let setupMode = false;
 function showLogin(needsSetup) {
   setupMode = needsSetup;
   me = null;
+  $("update-info").hidden = true;
   showView("login");
   $("login-title").textContent = needsSetup ? "Welcome! Create the admin account" : "Log in";
   $("login-hint").textContent = needsSetup
@@ -95,6 +111,7 @@ function showLogin(needsSetup) {
 function setMe(user) {
   me = user;
   document.body.classList.toggle("viewer", !user.is_admin);
+  checkForUpdate();
 }
 
 async function submitLogin(e) {
@@ -123,6 +140,7 @@ async function submitLogin(e) {
 }
 
 async function boot() {
+  loadVersion();
   try {
     const status = await api("api/auth/status");
     if (!status.user) return showLogin(status.needs_setup);
@@ -145,7 +163,7 @@ async function loadChannels() {
     if (!data.channels.length) {
       $("channels").replaceChildren(el("p", {
         className: "notice",
-        textContent: me?.is_admin ? "No channels yet. Add some shows in Settings (⚙)." : "No channels yet. Ask an admin to add some shows.",
+        textContent: me?.is_admin ? "No channels yet. Add some shows under All shows." : "No channels yet. Ask an admin to add some shows.",
       }));
     }
     const problems = [
@@ -389,21 +407,23 @@ async function playOnTv() {
 
 async function loadShows() {
   showView("shows");
+  showNotice($("shows-error"), "");
   const list = $("show-list");
   list.replaceChildren(el("li", { className: "notice", textContent: "Loading…" }));
   try {
     const [{ shows }, { services }] = await Promise.all([api("api/shows"), api("api/channels")]);
     $("my-services").textContent = services.length
       ? `Your services: ${services.join(", ")}`
-      : "No services listed in config.yaml";
-    list.replaceChildren(...shows.map(showItem));
+      : "No services set up yet (Settings → Your services)";
+    if (me.is_admin) await openShowsEditor(shows); // settings.js: same list, editable
+    else list.replaceChildren(...shows.map(showItem));
   } catch (e) {
     list.replaceChildren(el("li", { className: "notice error", textContent: e.message }));
   }
 }
 
-function showItem(s) {
-  const a = s.access;
+// Where-to-watch lines for a show: tier and channels, provider chips, other services.
+function accessBits(a, channels) {
   const chips = el("div", { className: "chips" });
   if (!a.checked) {
     chips.append(el("span", { className: "chip", textContent: "not checked yet" }));
@@ -413,13 +433,18 @@ function showItem(s) {
     const cls = a.tier === "subscription" ? "good" : "meh";
     for (const o of a.options) chips.append(el("span", { className: `chip ${cls}`, textContent: o.provider_name }));
   }
-  const lines = [el("p", { textContent: `${a.tier_label} · ${s.channels.join(", ")}` })];
+  const tier = channels ? `${a.tier_label} · ${channels.join(", ")}` : a.tier_label;
+  const lines = [el("p", { textContent: tier })];
   if (a.other_subscriptions.length) {
     lines.push(el("p", { textContent: `Also on: ${a.other_subscriptions.join(", ")}` }));
   }
+  return [...lines, chips];
+}
+
+function showItem(s) {
   return el("li", { className: "show-item" },
     s.poster_url ? el("img", { className: "poster", src: s.poster_url, alt: "" }) : el("div", { className: "poster" }),
-    el("div", {}, el("h3", { textContent: s.show_name }), ...lines, chips),
+    el("div", {}, el("h3", { textContent: s.show_name }), ...accessBits(s.access, s.channels)),
   );
 }
 
@@ -437,6 +462,7 @@ $("back").addEventListener("click", () => {
     // Return to where Credits was opened from (e.g. the login screen or a pick).
     const back = me ? viewBeforeCredits : "login";
     if (back === "login" || !me) return showLogin(setupMode);
+    if (back === "shows") return loadShows();
     if (back && back !== "settings") return showView(back);
   }
   if (!settingsCanLeave()) return;
@@ -447,4 +473,5 @@ $("credits-link").addEventListener("click", openCredits);
 
 $("login-form").addEventListener("submit", submitLogin);
 
-boot();
+// After settings.js has loaded too: views use its save bar and editors.
+document.addEventListener("DOMContentLoaded", boot);
