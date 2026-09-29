@@ -47,19 +47,36 @@ the history in Settings.
 You need Docker and a free [TMDB API key](https://www.themoviedb.org/settings/api)
 of your own. The prebuilt image runs on arm64 (Raspberry Pi 4/5) and amd64.
 
-```sh
-mkdir deadair && cd deadair
-curl -fsSLO https://raw.githubusercontent.com/JamesHeadrick/DeadAir-TV/main/docker-compose.yml
-curl -fsSL  https://raw.githubusercontent.com/JamesHeadrick/DeadAir-TV/main/.env.example -o .env
-nano .env                                   # set TMDB_API_KEY
-mkdir -p config data && sudo chown -R 1000:1000 config data   # container runs as uid 1000
-docker compose up -d
+Make a folder with this `docker-compose.yml` in it, fill in your key, and run
+`docker compose up -d`:
+
+```yaml
+services:
+  deadair-tv:
+    image: ghcr.io/jamesheadrick/deadair-tv:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/config   # your settings (config.yaml)
+      - ./data:/data       # database: episodes cache, users, watch history
+    environment:
+      TMDB_API_KEY: "your-tmdb-api-key"
+      # Optional: create the admin account on first start. Without these, the
+      # first person to open the page creates it. They're ignored once any user
+      # exists, so you can delete them after the first start.
+      ADMIN_USER: "admin"
+      ADMIN_PASSWORD: "pick-a-good-password"
 ```
 
-Then open `http://<host>:8000`. On the first visit you create the admin
-account; alternatively, set `ADMIN_USER`/`ADMIN_PASSWORD` in `.env` to create
-it at startup. Then tap **⚙** to pick your services and add shows. Each new
-show's episodes are fetched right away, which takes a few seconds per show.
+Then open `http://<host>:8000`, log in, and tap **⚙** to pick your services
+and add shows. Each new show's episodes are fetched right away, which takes a
+few seconds per show. The `config` and `data` folders are created
+automatically.
+
+Other optional settings are listed under [Environment](#environment) below.
+They can go in the same `environment:` block. The repo's own
+`docker-compose.yml` does the same, but also reads an optional `.env` file.
 
 **Updating:** `docker compose pull && docker compose up -d`. Your settings,
 users and history live in `config/` and `data/`, outside the container.
@@ -71,7 +88,7 @@ an exact one like `:1.0.0`.
 
 ```sh
 git clone https://github.com/JamesHeadrick/DeadAir-TV.git && cd DeadAir-TV
-cp .env.example .env && mkdir -p config data && sudo chown -R 1000:1000 config data
+cp .env.example .env                        # set TMDB_API_KEY
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
@@ -164,7 +181,10 @@ shows:
 To force a full TMDB re-sync (e.g. after a show adds a new season), run
 `curl -X POST http://<host>:8000/api/refresh`.
 
-### Environment (`.env`)
+### Environment
+
+Set these under `environment:` in your compose file, or in a `.env` file
+next to it.
 
 | Var | Default | |
 |---|---|---|
@@ -175,6 +195,8 @@ To force a full TMDB re-sync (e.g. after a show adds a new season), run
 | `ENABLE_ADB` | `false` | phase 2, see below |
 | `TV_IP` | – | Chromecast IP |
 | `ADB_PORT` | `5555` | |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | – | create the first admin at startup (only when no users exist) |
+| `PUID` / `PGID` | `1000` | user/group the app runs as; the `config` and `data` folders are handed to it on start |
 
 ## Phase 2: Play on TV (optional)
 

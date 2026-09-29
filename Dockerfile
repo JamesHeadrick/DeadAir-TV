@@ -11,11 +11,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+# The entrypoint makes /config and /data writable, then drops to PUID:PGID
+# (default 1000:1000) before starting the app; see docker-entrypoint.sh.
 # HOME=/data keeps adb's RSA key (~/.android) in the persistent volume, so the
 # TV only asks you to authorize the connection once.
 RUN useradd --uid 1000 --home-dir /data --no-create-home app \
     && mkdir -p /data /config && chown app:app /data /config
-USER app
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["docker-entrypoint.sh"]
 ENV HOME=/data \
     PYTHONUNBUFFERED=1 \
     CONFIG_PATH=/config/config.yaml \

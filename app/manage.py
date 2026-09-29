@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 
 from . import auth
@@ -24,7 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--admin", action="store_true", help="also make the user an admin")
     args = parser.parse_args(argv)
 
-    db = Database(Settings.from_env().db_path)
+    db_path = Settings.from_env().db_path
+    _drop_root(db_path)
+    db = Database(db_path)
     if args.cmd == "list-users":
         for u in db.list_users():
             print(f"{u['username']}\t{'admin' if u['is_admin'] else 'viewer'}")
@@ -47,6 +50,21 @@ def main(argv: list[str] | None = None) -> int:
         db.delete_user_sessions(user["id"])
         print(f"Password updated for {user['username']}; their sessions were logged out.")
     return 0
+
+
+def _drop_root(db_path) -> None:
+    """`docker compose exec` runs as root; act as the owner of the data folder
+    instead, so we never leave root-owned database files the app can't write."""
+    if os.name != "posix" or os.getuid() != 0:
+        return
+    try:
+        st = os.stat(os.path.dirname(os.path.abspath(db_path)))
+    except FileNotFoundError:
+        return
+    if st.st_uid != 0:
+        os.setgroups([])
+        os.setgid(st.st_gid)
+        os.setuid(st.st_uid)
 
 
 if __name__ == "__main__":
