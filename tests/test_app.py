@@ -302,6 +302,12 @@ def test_sync_fetches_all_seasons_except_zero_and_providers(tmp_path):
     asyncio.run(syncer.run_once(cfg))
     assert requests == [] and len(wd_requests) == 1
 
+    # A show synced before per-season checks existed gets them on the next run.
+    with db.connect() as conn:
+        conn.execute("UPDATE shows SET season_providers_json = NULL")
+    asyncio.run(syncer.run_once(cfg))
+    assert len(requests) == 1 + 22 and db.get_show(99)["season_providers_json"] is not None
+
 
 def test_bearer_token_auth():
     requests = []

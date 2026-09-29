@@ -49,7 +49,8 @@ class Syncer:
                         self.last_error = f"episodes for {tmdb_id}: {e}"
                         log.warning("episode refresh failed for %s: %s", tmdb_id, e)
 
-                if force or self._stale(row and row["providers_checked_at"], prov_age, now):
+                never_checked_seasons = row is not None and row["season_providers_json"] is None
+                if force or never_checked_seasons or self._stale(row and row["providers_checked_at"], prov_age, now):
                     try:
                         providers = await self.client.fetch_providers(
                             tmdb_id, self.settings.watch_region
