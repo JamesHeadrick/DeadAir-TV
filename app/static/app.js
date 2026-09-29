@@ -265,11 +265,19 @@ function render(ep, error) {
       rel: "noopener",
     });
     if (o.logo_url) a.append(el("img", { className: "logo", src: o.logo_url, alt: "" }));
-    a.append(i === 0 ? `Open in ${o.provider_name}` : o.provider_name);
+    a.append(el("span", { textContent: watchLabel(o) }));
     return a;
   });
   $("watch-options").replaceChildren(...opts);
   $("play").hidden = !adbEnabled || !access.options.length;
+}
+
+// Say what the button will do: show pages open the series, fallbacks only search.
+function watchLabel(o) {
+  const name = o.provider_name;
+  if (o.source === "manual" || o.source === "auto") return `Open series in ${name}`;
+  if (o.source === "tmdb") return `Find ${name} on TMDB`;
+  return `Search in ${name}`;
 }
 
 // "COMEDY · scifi · short": the channel you picked from, then the show's other channels, dimmed.

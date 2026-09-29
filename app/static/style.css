@@ -178,6 +178,8 @@ main {
 .watch-options { display: flex; flex-direction: column; gap: 10px; }
 .btn img.logo { width: 28px; height: 28px; border-radius: 6px; margin-right: 10px; }
 .btn.secondary-option { min-height: 48px; font-size: 1rem; }
+.watch-options .btn { padding: 6px 14px; text-align: center; }
+.watch-options .btn img.logo { flex-shrink: 0; }
 .tier {
   margin: 16px 0 0;
   color: var(--muted);
