@@ -18,7 +18,7 @@ services:
       ADMIN_USER: ${ADMIN_USER:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     env_file:
-      # Optional extra settings (WATCH_REGION, ENABLE_ADB, TV_IP, ...); see .env.example.
+      # Optional extra settings (WATCH_REGION, PROVIDER_CHECK_HOURS, ...); see .env.example.
       - path: .env
         required: false
     volumes:

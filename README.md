@@ -44,7 +44,6 @@ the history in Settings.
 - Username/password logins. **Admins** manage settings and users.
   **Viewers** can pick episodes and keep their own watched/skipped history.
 - One mobile-first dark page.
-- Optional: **Play on TV** launches the link on a Chromecast with Google TV over ADB.
 
 ## Quick start (Raspberry Pi / any Docker host)
 
@@ -243,30 +242,11 @@ next to it.
 | `WATCH_REGION` | `US` | provider region to check |
 | `EPISODE_REFRESH_DAYS` | `7` | |
 | `PROVIDER_CHECK_HOURS` | `24` | how often to check where shows (and each of their seasons) stream |
-| `ENABLE_ADB` | `false` | phase 2, see below |
-| `TV_IP` | – | Chromecast IP |
-| `ADB_PORT` | `5555` | |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | – | create the first admin at startup (only when no users exist) |
 | `WIKIDATA_LINKS` | `true` | look up show-page links on Wikidata (see Open links) |
 | `UPDATE_CHECK` | `true` | check GitHub daily for a newer version (see Update notice) |
 | `DEADAIR_IMAGE` | `ghcr.io/jamesheadrick/deadair-tv:latest` | image to run (read by docker-compose.yml, not the app) |
 | `PUID` / `PGID` | `1000` | user/group the app runs as; the `config` and `data` folders are handed to it on start |
-
-## Phase 2: Play on TV (optional)
-
-1. On the Chromecast with Google TV, go to *Settings → System → About* and tap
-   *Android TV OS build* 7 times to enable Developer options. Then turn on
-   *Settings → System → Developer options → USB debugging*.
-2. Give the TV a DHCP reservation, then set `ENABLE_ADB=true` and `TV_IP=...` in `.env`.
-3. Press **Play on TV** once and accept the "Allow USB debugging?" prompt on
-   the TV (tick *Always allow*). The key is stored in `./data/.android`, so
-   this is a one-time step.
-
-The button runs `adb connect <tv-ip>:5555` and then
-`adb shell am start -a android.intent.action.VIEW -d <url>`, using the first
-watch option's link. The server builds the URL itself; the browser never
-supplies it. Exact `links:` deep links work best, because many TV apps ignore
-search URLs.
 
 ## Accounts
 
@@ -294,6 +274,9 @@ search URLs.
 
 - **Per-user services/channels**: right now shows, channels and services are
   shared by everyone; only watch history is per person.
+- **Play on TV**: open the picked show on a TV (e.g. a Chromecast with Google
+  TV over ADB) straight from the pick. An untested early version was removed
+  in 1.0.1; it's in the git history (`app/adb.py`) for when this comes back.
 
 ## Development
 
@@ -348,5 +331,11 @@ from [game-icons.net](https://game-icons.net/), licensed under CC BY 3.0.
 In the app, all credits live on the **Credits** page, which is linked from
 the footer on every screen, including the login screen. The footer itself
 keeps only the JustWatch credit next to the "Credits" link. **Adding an
-icon?** Add a line for it to the icon list in the `credits-view` section of
-`app/static/index.html`.
+icon?** Add it as a `<symbol>` in the icon sprite at the top of `<body>` in
+`app/static/index.html`, use it with `<svg><use href="#id"/></svg>`, and add a
+line for it (with the icon) to the list in the `credits-view` section.
+
+The DeadAir TV icon (`app/static/icon.svg`) was made for this project by Claude
+(Anthropic), and is credited on the Credits page too. The
+home-screen PNGs are rendered from `tools/icon-full.svg` with
+`python tools/make_icons.py`.

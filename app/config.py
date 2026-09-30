@@ -26,9 +26,6 @@ class Settings:
     watch_region: str = "US"
     episode_refresh_days: float = 7
     provider_check_hours: float = 24
-    enable_adb: bool = False
-    tv_ip: str = ""
-    adb_port: int = 5555
     wikidata_links: bool = True  # look up show-page links on Wikidata
     update_check: bool = True    # ask GitHub daily whether a newer DeadAir exists
     # Creates the first admin at startup if there are no users yet. Without
@@ -45,9 +42,6 @@ class Settings:
             watch_region=os.environ.get("WATCH_REGION", "US").upper(),
             episode_refresh_days=float(os.environ.get("EPISODE_REFRESH_DAYS", "7")),
             provider_check_hours=float(os.environ.get("PROVIDER_CHECK_HOURS", "24")),
-            enable_adb=_env_bool("ENABLE_ADB"),
-            tv_ip=os.environ.get("TV_IP", "").strip(),
-            adb_port=int(os.environ.get("ADB_PORT", "5555")),
             wikidata_links=_env_bool("WIKIDATA_LINKS", True),
             update_check=_env_bool("UPDATE_CHECK", True),
             admin_user=os.environ.get("ADMIN_USER", "").strip(),

@@ -7,6 +7,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import re
 import sqlite3
@@ -24,7 +25,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import adb, auth
+from . import auth
 from .access import Access, builtin_search_url, compute_access
 from .config import (
     AppConfig,
@@ -47,6 +48,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("deadair")
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Not in every system's MIME table (e.g. slim Docker images).
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 def _render_index() -> str:
@@ -199,12 +202,6 @@ def _start_session(request: Request, response: Response, user_id: int) -> None:
 
 def _user_json(u) -> dict:
     return {"id": u["id"], "username": u["username"], "is_admin": bool(u["is_admin"])}
-
-
-class PlayRequest(BaseModel):
-    tmdb_id: int
-    provider_id: int | None = None  # which watch option; default = the first
-    season: int | None = None       # the episode's season, when a service only has some
 
 
 def create_app(settings: Settings | None = None, start_sync: bool = True) -> FastAPI:
@@ -419,7 +416,6 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         return {
             "channels": out,
             "services": current_config().services,
-            "adb_enabled": state.settings.enable_adb and bool(state.settings.tv_ip),
             "sync_error": state.syncer.last_error if state.syncer else "TMDB_API_KEY not set",
             "config_error": state.config_error,
             "cooldown_days": current_config().cooldown_days,
@@ -521,28 +517,6 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     async def clear_history(user: User = Depends(current_user)):
         """Clears only your own watched/skipped history."""
         return {"deleted": state.db.clear_history(user.id)}
-
-    @app.post("/api/play")
-    async def play(req: PlayRequest):
-        s = state.settings
-        if not (s.enable_adb and s.tv_ip):
-            raise HTTPException(404, "Play on TV is disabled (set ENABLE_ADB=true and TV_IP)")
-        # URLs are rebuilt server-side from config + TMDB data, never taken from the client.
-        show = current_config().find_show(req.tmdb_id)
-        if show is None:
-            raise HTTPException(404, "unknown show")
-        info = _show_infos([show])[show.tmdb_id]
-        access = info["_season_access"].get(req.season, info["_access"])
-        options = access.options
-        if req.provider_id is not None:
-            options = [o for o in options if o.provider_id == req.provider_id]
-        if not options:
-            raise HTTPException(404, "no watch option for this show")
-        try:
-            out = await adb.play_on_tv(s.tv_ip, s.adb_port, options[0].url)
-        except (adb.ADBError, FileNotFoundError) as e:
-            raise HTTPException(502, str(e))
-        return {"ok": True, "output": out}
 
     @app.post("/api/refresh")
     async def refresh(_: User = Depends(admin_user)):

@@ -2,7 +2,6 @@
 
 const $ = (id) => document.getElementById(id);
 
-let adbEnabled = false;
 let currentChannel = null;
 // Per channel visit: shows you've skipped and episodes you've already been shown.
 let skippedShows = new Set();
@@ -167,7 +166,6 @@ async function boot() {
 async function loadChannels() {
   try {
     const data = await api("api/channels");
-    adbEnabled = data.adb_enabled;
     $("channels").replaceChildren(...data.channels.map(channelButton));
     if (!data.channels.length) {
       $("channels").replaceChildren(el("p", {
@@ -231,7 +229,7 @@ async function pick(mode = "any") {
   seenEpisodes.forEach((k) => params.append("skip_ep", k));
 
   showView("pick");
-  showNotice($("play-status"), "");
+  showNotice($("pick-status"), "");
   document.body.classList.add("loading");
   const buttons = ["reroll", "other-show", "same-show", "skip", "watched"].map($);
   buttons.forEach((b) => (b.disabled = true));
@@ -265,7 +263,6 @@ function render(ep, error) {
     $("p-tier").textContent = "";
     $("watch-options").replaceChildren();
     still.removeAttribute("src");
-    $("play").hidden = true;
     return;
   }
   // Admins can jump straight to this show's settings (e.g. to add an Open link).
@@ -301,7 +298,6 @@ function render(ep, error) {
     ? watchButton(best, true)
     : el("span", { className: "btn placeholder", textContent: access.checked ? "Nowhere to watch" : "Checking where to watch…" });
   $("watch-options").replaceChildren(main, more);
-  $("play").hidden = !adbEnabled || !access.options.length;
 }
 
 function watchButton(o, primary) {
@@ -408,7 +404,7 @@ async function toggleWatched() {
     current.history = res.history;
     renderHistory(current);
   } catch (e) {
-    showNotice($("play-status"), `Couldn't save: ${e.message}`, true);
+    showNotice($("pick-status"), `Couldn't save: ${e.message}`, true);
   } finally {
     btn.disabled = false;
   }
@@ -423,28 +419,9 @@ async function skipEpisode() {
       body: JSON.stringify({ ...epRef(current), kind: "skipped" }),
     });
   } catch (e) {
-    return showNotice($("play-status"), `Couldn't save: ${e.message}`, true);
+    return showNotice($("pick-status"), `Couldn't save: ${e.message}`, true);
   }
   pick("any");
-}
-
-async function playOnTv() {
-  if (!current) return;
-  const btn = $("play");
-  btn.disabled = true;
-  showNotice($("play-status"), "Sending to TV…");
-  try {
-    await api("api/play", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tmdb_id: current.tmdb_id, season: current.season }),
-    });
-    showNotice($("play-status"), "Launched on TV.");
-  } catch (e) {
-    showNotice($("play-status"), `TV: ${e.message}`, true);
-  } finally {
-    btn.disabled = false;
-  }
 }
 
 // --- all shows --------------------------------------------------------------
@@ -528,7 +505,6 @@ $("watched").addEventListener("click", toggleWatched);
 $("skip").addEventListener("click", skipEpisode);
 $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
-$("play").addEventListener("click", playOnTv);
 $("p-more").addEventListener("click", toggleOverview);
 $("shows-btn").addEventListener("click", () => loadShows());
 $("back").addEventListener("click", () => {

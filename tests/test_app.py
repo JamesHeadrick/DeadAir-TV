@@ -331,7 +331,7 @@ def client(tmp_path):
         "  - tmdb_id: 2\n"
         "    channels: [sitcom]\n"
     )
-    settings = Settings(config_path=cfg, db_path=tmp_path / "t.db", enable_adb=True, tv_ip="10.0.0.5")
+    settings = Settings(config_path=cfg, db_path=tmp_path / "t.db")
     app = main.create_app(settings, start_sync=False)
     with TestClient(app) as c:
         r = c.post("/api/auth/setup", json={"username": "admin", "password": "correct horse"})
@@ -379,7 +379,6 @@ def test_api_channels_and_shows(client):
     assert sitcom["unwatchable"] == ["Show 2"]
     assert sitcom["posters"] == []  # the test shows have no poster art
     assert data["services"] == ["Netflix"]
-    assert data["adb_enabled"] is True
 
     shows = {s["tmdb_id"]: s for s in client.get("/api/shows").json()["shows"]}
     assert shows[1]["access"]["tier"] == "subscription"
@@ -427,23 +426,6 @@ def test_api_pick_other_show_and_same_show(client):
         _, ep = get(show=2, skip_ep=["2:1:1", "2:1:2"])
         assert (ep["tmdb_id"], ep["episode"]) == (2, 3)
     assert ep["other_shows"] == 2
-
-
-def test_api_play_uses_server_side_url(client, monkeypatch):
-    calls = []
-
-    async def fake_run(*args, timeout=15):
-        calls.append(args)
-        return "connected to 10.0.0.5:5555" if args[1] == "connect" else "Starting: Intent"
-
-    monkeypatch.setattr(main.adb, "_run", fake_run)
-    r = client.post("/api/play", json={"tmdb_id": 1})
-    assert r.status_code == 200, r.text
-    assert calls[0] == ("adb", "connect", "10.0.0.5:5555")
-    assert calls[1][-1] == "'https://netflix.example/1?a=1&b=2'"
-
-    assert client.post("/api/play", json={"tmdb_id": 2}).status_code == 404  # nowhere to watch
-    assert client.post("/api/play", json={"tmdb_id": 3}).status_code == 404  # unknown show
 
 
 def test_api_config_get_put_and_conflict(client):
@@ -877,6 +859,18 @@ def test_version_is_public(client, monkeypatch):
     assert res.json()["version"] == "pr-3"
     # The CI smoke test greps for this exact compact form.
     assert '"commit":"1a3607a"' in res.text
+
+
+def test_icons_and_manifest_are_served(client):
+    page = client.get("/").text
+    for path in ("static/icon.svg", "static/apple-touch-icon.png", "static/manifest.webmanifest"):
+        assert re.search(rf'href="{re.escape(path)}\?v=[0-9a-f]{{10}}"', page), path
+    manifest = client.get("/static/manifest.webmanifest")
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    for icon in manifest.json()["icons"]:
+        assert client.get(f"/static/{icon['src']}").status_code == 200, icon["src"]
+    # Every <use href="#…"> points at an icon defined in the page's sprite.
+    assert set(re.findall(r'<use href="#([\w-]+)"', page)) <= set(re.findall(r'<symbol id="([\w-]+)"', page))
 
 
 def test_ui_files_are_revalidated(client):

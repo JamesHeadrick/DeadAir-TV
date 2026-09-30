@@ -32,8 +32,8 @@ channels:
 #   weight:   optional, default 1. Multiplies the odds of each of this
 #             show's episodes (weight 2 = each episode twice as likely).
 #   name:     optional display-name override.
-#   links:    optional exact deep links per service. They beat the default
-#             search link and make "Play on TV" more reliable.
+#   links:    optional links to the show on each service (Settings calls
+#             these Open links). They beat the default search link.
 shows:
   - tmdb_id: 1400       # Seinfeld
     channels: [sitcom]
