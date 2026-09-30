@@ -166,7 +166,9 @@ async function boot() {
 async function loadChannels() {
   try {
     const data = await api("api/channels");
-    $("channels").replaceChildren(...data.channels.map(channelButton));
+    // "Surprise me" rolls from every show; only worth it with more than one channel.
+    const surprise = data.channels.length > 1 ? [surpriseButton(data.all_channels)] : [];
+    $("channels").replaceChildren(...surprise, ...data.channels.map(channelButton));
     if (!data.channels.length) {
       $("channels").replaceChildren(el("p", {
         className: "notice",
@@ -183,14 +185,14 @@ async function loadChannels() {
   }
 }
 
+// ch.key: the channel to roll on (defaults to its name); ch.meta: the line under the name.
 function channelButton(ch) {
+  const emoji = ch.emoji ? el("span", { className: "emoji", textContent: ch.emoji, ariaHidden: "true" }) : null;
   const text = el("span", { className: "text" },
-    el("span", { className: "name" },
-      ch.emoji ? el("span", { className: "emoji", textContent: ch.emoji, ariaHidden: "true" }) : null,
-      el("span", { textContent: ch.name })),
-    el("span", { className: "meta", textContent: ch.shows.join(" · ") }),
+    el("span", { className: "name" }, emoji, el("span", { textContent: ch.name })),
+    el("span", { className: "meta", textContent: ch.meta ?? ch.shows.join(" · ") }),
   );
-  if (ch.unwatchable.length) {
+  if (ch.unwatchable?.length) {
     text.append(el("span", {
       className: "warn",
       textContent: `⚠ ${ch.unwatchable.length} not on your services`,
@@ -206,12 +208,24 @@ function channelButton(ch) {
   const btn = el("button", { className: "channel-btn" }, text, ch.posters.length ? posters : null);
   btn.addEventListener("click", () => {
     current = null;
-    enterChannel(ch.name);
+    enterChannel(ch.key ?? ch.name);
   });
   return btn;
 }
 
 // --- pick -------------------------------------------------------------------
+
+const ALL_CHANNELS = "*"; // the server's "every show" channel
+const channelTitle = (c) => (c === ALL_CHANNELS ? "Surprise me" : c);
+
+function surpriseButton(all) {
+  const btn = channelButton({
+    key: ALL_CHANNELS, name: "Surprise me", emoji: "🎲",
+    meta: `Anything from all ${all.shows} shows`, posters: all.posters,
+  });
+  btn.classList.add("surprise");
+  return btn;
+}
 
 function enterChannel(channel) {
   currentChannel = channel;
@@ -343,10 +357,10 @@ function renderChannelLabel(ep) {
   const others = (ep?.channels || [])
     .filter((c) => c !== currentChannel)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  const emoji = ep?.channel_emoji?.[currentChannel];
+  const emoji = currentChannel === ALL_CHANNELS ? "🎲" : ep?.channel_emoji?.[currentChannel];
   $("p-channel").replaceChildren(
     emoji ? el("span", { className: "emoji", textContent: emoji, ariaHidden: "true" }) : "",
-    el("span", { textContent: currentChannel }),
+    el("span", { textContent: channelTitle(currentChannel) }),
     ...others.map((c) => {
       const link = el("button", {
         className: "other", textContent: c, title: `Roll on ${c} instead`,
@@ -447,8 +461,9 @@ async function loadShows(focusId) {
   }
 }
 
-// Alphabetical, ignoring case and accents.
-const byName = (key) => (a, b) => key(a).localeCompare(key(b), undefined, { sensitivity: "base" });
+// Alphabetical, ignoring case, accents and a leading "The" / "A" / "An".
+const sortKey = (name) => name.replace(/^(the|an?)\s+/i, "");
+const byName = (key) => (a, b) => sortKey(key(a)).localeCompare(sortKey(key(b)), undefined, { sensitivity: "base" });
 
 // Back from All shows to a pick: refresh its watch buttons in case links changed.
 async function returnToPick() {

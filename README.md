@@ -24,8 +24,13 @@ To keep an episode out of rotation for a while, mark it:
   straight away.
 
 When an episode comes back up after its cooldown, the card mentions it
-(e.g. "You watched this 3 weeks ago"). You can change the cooldown or clear
-the history in Settings.
+(e.g. "You watched this 3 weeks ago"). Settings lists what you've marked
+recently, each with an **Undo**, and can change the cooldown or clear the
+history.
+
+With more than one channel, **🎲 Surprise me** at the top of the channel list
+rolls from every show at once. Each channel button shows a few of its shows'
+posters, a different random few each time.
 
 - Episode lists come from TMDB and are cached in SQLite. They refresh weekly.
 - Once a day it asks TMDB (JustWatch data) where each show is streaming and
@@ -164,7 +169,8 @@ Viewers see the same list without the editing controls. Settings has the rest:
   suggestions or type your own), plus **Rename** and **Delete**, which apply
   to every show tagged with that channel. Renaming onto an existing channel
   merges the two.
-- **Watched & skipped**: set the cooldown length and clear the history.
+- **Watched & skipped**: set the cooldown length, see and undo your recent
+  marks, and clear the history.
 - **Search links**: add or override a service's search URL.
 
 Both pages share one **Save** bar, and unsaved edits carry over when you

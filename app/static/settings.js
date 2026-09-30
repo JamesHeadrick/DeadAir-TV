@@ -72,9 +72,11 @@ async function openSettings() {
     api("api/channels").then((d) => {
       $("cooldown-text").textContent = `for ${d.cooldown_days} days`;
     }).catch(() => {});
+    loadRecentHistory();
     return;
   }
   loadUsers();
+  loadRecentHistory();
   if (!(await ensureDraft())) return;
   renderSettings();
   loadProviders();
@@ -661,6 +663,47 @@ async function refreshShowInfo() {
   } catch { /* the list just stays as it is */ }
 }
 
+// --- recently marked (your own watched / skipped) ----------------------------
+
+async function loadRecentHistory() {
+  const list = $("recent-history");
+  try {
+    const { history } = await api("api/history?limit=20");
+    if (!history.length) {
+      return list.replaceChildren(el("li", { className: "hint", textContent: "Nothing marked yet." }));
+    }
+    list.replaceChildren(...history.map(recentRow));
+  } catch (e) {
+    list.replaceChildren(el("li", { className: "hint", textContent: e.message }));
+  }
+}
+
+function recentRow(h) {
+  const undo = el("button", {
+    className: "btn small", textContent: "Undo",
+    title: "Forget this mark, so the episode can come up again",
+    ariaLabel: `Undo ${h.kind === "watched" ? "watched" : "skip"}: ${h.show_name} ${h.code}`,
+  });
+  undo.addEventListener("click", async () => {
+    undo.disabled = true;
+    try {
+      await api(`api/history/${h.id}`, { method: "DELETE" });
+      loadRecentHistory();
+    } catch (e) {
+      undo.disabled = false;
+      showNotice($("settings-error"), `Couldn't undo: ${e.message}`, true);
+    }
+  });
+  const what = [h.code, h.title].filter(Boolean).join(" · ");
+  return el("li", {},
+    el("span", { className: `mark ${h.kind}`, textContent: h.kind === "watched" ? "✓" : "✕",
+      title: h.kind === "watched" ? "Watched" : "Skipped" }),
+    el("span", { className: "grow" },
+      el("b", { textContent: h.show_name }), " ", what,
+      el("small", { textContent: `${h.kind === "watched" ? "Watched" : "Skipped"} ${ago(h.at)}${h.cooling_down ? "" : " · can come up again"}` })),
+    undo);
+}
+
 // --- account & users ------------------------------------------------------------
 
 async function changePassword(e) {
@@ -763,6 +806,7 @@ $("clear-history").addEventListener("click", async () => {
   try {
     const { deleted } = await api("api/history", { method: "DELETE" });
     showNotice($("settings-error"), `Cleared ${deleted} history entr${deleted === 1 ? "y" : "ies"}.`);
+    loadRecentHistory();
   } catch (e) {
     showNotice($("settings-error"), `Couldn't clear history: ${e.message}`, true);
   }

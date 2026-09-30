@@ -897,6 +897,43 @@ def test_episode_order_in_config_and_api(client):
     assert groups[0] == {"id": "dvd1", "name": "DVD Order", "type": "DVD", "episode_count": 14}
 
 
+def test_surprise_me_rolls_from_every_show(client):
+    db = main.state.db
+    db.set_providers(2, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})  # both watchable now
+    data = client.get("/api/channels").json()
+    assert data["all_channels"]["name"] == "*" and data["all_channels"]["shows"] == 2
+    picked = {client.get("/api/pick", params={"channel": "*"}).json()["tmdb_id"] for _ in range(30)}
+    assert picked == {1, 2}  # show 2 isn't in "short"; "*" covers every channel
+
+
+def test_channel_posters_are_a_random_few(monkeypatch):
+    infos = [{"thumb_url": f"p{i}"} for i in range(6)] + [{"thumb_url": None}]
+    seen = {tuple(main._random_posters(infos)) for _ in range(30)}
+    assert all(len(p) == main.CHANNEL_POSTERS and set(p) <= {f"p{i}" for i in range(6)} for p in seen)
+    assert len(seen) > 1  # not always the same four
+    assert main._random_posters(infos[:2]) in (["p0", "p1"], ["p1", "p0"])
+
+
+def test_recent_history_and_undo(client):
+    client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": 1, "kind": "watched"})
+    client.post("/api/history", json={"tmdb_id": 2, "season": 1, "episode": 3, "kind": "skipped"})
+    hist = client.get("/api/history").json()["history"]
+    assert [(h["show_name"], h["code"], h["kind"]) for h in hist] == [
+        ("Show 2", "S01E03", "skipped"), ("Show 1", "S01E01", "watched")]  # newest first
+    assert hist[1]["title"] == "Ep 1" and hist[1]["cooling_down"] is True
+
+    # Someone else can't undo your marks.
+    client.post("/api/users", json={"username": "kid", "password": "kidpass123"})
+    other = TestClient(client.app)
+    _login_as(other, "kid", "kidpass123")
+    assert other.get("/api/history").json()["history"] == []
+    assert other.delete(f"/api/history/{hist[1]['id']}").status_code == 404
+
+    assert client.delete(f"/api/history/{hist[1]['id']}").json() == {"ok": True}
+    assert [h["show_name"] for h in client.get("/api/history").json()["history"]] == ["Show 2"]
+    assert client.delete(f"/api/history/{hist[1]['id']}").status_code == 404
+
+
 def test_openable_services_come_before_searches():
     # Prime is higher in your list, but only Hulu has a link to the show itself.
     cfg = AppConfig(services=["Amazon Prime Video", "Netflix", "Hulu", "Fubo"])

@@ -279,6 +279,21 @@ class Database:
                 (user_id, tmdb_id, season, episode),
             ).fetchone()
 
+    def recent_history(self, user_id: int, limit: int = 20) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                """SELECT h.id, h.tmdb_id, h.season, h.episode, h.kind, h.at, e.title
+                   FROM episode_history h
+                   LEFT JOIN episodes e ON e.tmdb_id = h.tmdb_id AND e.season = h.season AND e.episode = h.episode
+                   WHERE h.user_id = ? ORDER BY h.at DESC, h.id DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+
+    def delete_history_entry(self, user_id: int, entry_id: int) -> bool:
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM episode_history WHERE id = ? AND user_id = ?", (entry_id, user_id))
+            return cur.rowcount > 0
+
     def clear_history(self, user_id: int) -> int:
         with self.connect() as conn:
             return conn.execute("DELETE FROM episode_history WHERE user_id = ?", (user_id,)).rowcount
