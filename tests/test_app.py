@@ -983,6 +983,9 @@ def test_icons_and_manifest_are_served(client):
         assert re.search(rf'href="{re.escape(path)}\?v=[0-9a-f]{{10}}"', page), path
     manifest = client.get("/static/manifest.webmanifest")
     assert manifest.headers["content-type"].startswith("application/manifest+json")
+    # Installable as an app: its own window, and the 192/512px icons browsers require.
+    assert manifest.json()["display"] == "standalone"
+    assert {"192x192", "512x512"} <= {i["sizes"] for i in manifest.json()["icons"]}
     for icon in manifest.json()["icons"]:
         assert client.get(f"/static/{icon['src']}").status_code == 200, icon["src"]
     # Every <use href="#…"> points at an icon defined in the page's sprite.

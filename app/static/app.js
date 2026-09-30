@@ -565,5 +565,22 @@ window.addEventListener("popstate", (e) => {
 
 $("login-form").addEventListener("submit", submitLogin);
 
+// "Install as an app": browsers that support it (Chrome, Edge, Vivaldi, ... on
+// Android and desktop) offer it through this event; others via their menu.
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault(); // offer it from Settings instead of a browser banner
+  installPrompt = e;
+  $("install-row").hidden = false;
+});
+window.addEventListener("appinstalled", () => { installPrompt = null; $("install-row").hidden = true; });
+$("install-app").addEventListener("click", async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => {});
+  installPrompt = null;
+  $("install-row").hidden = true;
+});
+
 // After settings.js has loaded too: views use its save bar and editors.
 document.addEventListener("DOMContentLoaded", boot);

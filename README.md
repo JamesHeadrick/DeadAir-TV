@@ -141,6 +141,19 @@ login cookie is marked HTTPS-only automatically when the request comes in over
 HTTPS. Over plain `http://` on a LAN it still works, but the cookie is sent
 unencrypted.
 
+### Install as an app
+
+Over HTTPS, DeadAir can be installed like an app. It then opens in its own
+window with the TV icon, without the browser bar.
+
+- **Android / desktop Chrome, Edge, Vivaldi…**: Settings → Account → **Install
+  DeadAir as an app**, or the browser menu's *Install app*. A plain *Add to
+  Home screen* shortcut still opens in the browser.
+- **iPhone / iPad (Safari)**: Share → *Add to Home Screen*.
+
+Updates still arrive on a normal reload; nothing is cached offline. In the app
+window, use your phone's back gesture or the ← button to go back.
+
 ## Configuration
 
 ### All shows and Settings (⚙)

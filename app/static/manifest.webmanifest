@@ -1,10 +1,11 @@
 {
+  "id": "../",
   "name": "DeadAir",
   "short_name": "DeadAir",
   "description": "Random episode channels for your streaming services",
   "start_url": "../",
   "scope": "../",
-  "display": "browser",
+  "display": "standalone",
   "background_color": "#0d0f14",
   "theme_color": "#0d0f14",
   "icons": [
