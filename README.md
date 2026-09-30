@@ -145,8 +145,13 @@ shows** is where shows are managed:
 
 - **Add a show**: search TMDB by name at the top of the page.
 - **Edit**: on each show, change its channel tags (pick an existing channel or
-  type a new one), its weight, a display name, and its Open links, or remove
-  it. Each show also lists where you can watch it.
+  type a new one), its weight, a display name, its episode order and its Open
+  links, or remove it. Each show also lists where you can watch it.
+- **Episode order**: TMDB numbers episodes by original air date, which
+  doesn't always match the streaming apps. Firefly aired its pilot last, so
+  TMDB's S01E01 is "The Train Job", which is episode 2 on Hulu. Pick one of the
+  show's alternate orders from TMDB (e.g. *DVD*) to number its picks that way.
+  Only the S01E02 labels change; watched history is unaffected.
 
 Viewers see the same list without the editing controls. Settings has the rest:
 

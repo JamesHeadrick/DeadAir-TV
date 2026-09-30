@@ -121,6 +121,7 @@ class ShowIn(BaseModel):
     name: str | None = None
     title: str | None = None
     links: dict[str, str] = {}
+    episode_order: str | None = None
 
 
 class ConfigIn(BaseModel):
@@ -488,7 +489,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "access": season_access.to_dict(),
             "season": ep["season"],
             "episode": ep["episode"],
-            "code": f"S{ep['season']:02d}E{ep['episode']:02d}",
+            # In the show's chosen episode order, if any; season/episode stay TMDB's.
+            "code": _episode_code(row, ep["season"], ep["episode"]),
             "title": ep["title"],
             "overview": ep["overview"],
             "air_date": ep["air_date"],
@@ -544,6 +546,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "name": s.name,
                     "title": (row["name"] if row and row["name"] else None) or s.title,
                     "links": s.links,
+                    "episode_order": s.episode_order,
                     "poster_url": image_url(row["poster_path"], "w185") if row else None,
                     "watch": _watch_fallbacks(cfg, s, row),
                 }
@@ -593,6 +596,16 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             return {"results": await state.tmdb.search_tv(q)}
         except httpx.HTTPError as e:
             raise HTTPException(502, f"TMDB search failed: {e}")
+
+    @app.get("/api/tmdb/episode_groups")
+    async def tmdb_episode_groups(tmdb_id: int, _: User = Depends(admin_user)):
+        """A show's alternate episode orders, for its Episode order setting."""
+        if state.tmdb is None:
+            raise HTTPException(503, "TMDB_API_KEY not set")
+        try:
+            return {"groups": await state.tmdb.list_episode_groups(tmdb_id)}
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"TMDB episode orders failed: {e}")
 
     @app.get("/api/tmdb/providers")
     async def tmdb_providers(_: User = Depends(admin_user)):
@@ -699,6 +712,15 @@ def _auto_links(row) -> dict[str, str]:
         return json.loads(row["links_json"] or "{}") if row else {}
     except (KeyError, IndexError, ValueError):
         return {}
+
+
+def _episode_code(row, season: int, episode: int) -> str:
+    """"S01E02", using the show's chosen episode order when it covers this episode."""
+    if row and row["episode_order_json"]:
+        mapped = json.loads(row["episode_order_json"]).get("map", {}).get(f"{season}:{episode}")
+        if mapped:
+            season, episode = mapped
+    return f"S{season:02d}E{episode:02d}"
 
 
 def _build_info() -> dict:

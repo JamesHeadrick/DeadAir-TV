@@ -4,6 +4,7 @@ per show and per season (daily)."""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 
@@ -38,9 +39,12 @@ class Syncer:
             existing = self.db.get_shows(tmdb_ids)
             self.last_error = None
 
+            orders = {s.tmdb_id: s.episode_order for s in cfg.shows}
+
             for tmdb_id in tmdb_ids:
                 row = existing.get(tmdb_id)
-                if force or self._stale(row and row["episodes_refreshed_at"], ep_age, now):
+                episodes_due = force or self._stale(row and row["episodes_refreshed_at"], ep_age, now)
+                if episodes_due:
                     try:
                         show, episodes = await self.client.fetch_show_with_episodes(tmdb_id)
                         self.db.replace_episodes(show, episodes)
@@ -48,6 +52,19 @@ class Syncer:
                     except Exception as e:  # keep going; old cache stays usable
                         self.last_error = f"episodes for {tmdb_id}: {e}"
                         log.warning("episode refresh failed for %s: %s", tmdb_id, e)
+
+                # An alternate episode order (e.g. DVD order): refetched with the
+                # episodes, and right away when a different one is picked.
+                order = orders.get(tmdb_id)
+                stored = json.loads(row["episode_order_json"]) if row and row["episode_order_json"] else None
+                stored_group = stored and stored.get("group")
+                if order != stored_group or (order and episodes_due):
+                    try:
+                        mapping = await self.client.fetch_episode_order(order) if order else None
+                        self.db.set_episode_order(tmdb_id, order, mapping)
+                    except Exception as e:  # keep TMDB's numbering meanwhile
+                        self.last_error = f"episode order for {tmdb_id}: {e}"
+                        log.warning("episode order fetch failed for %s: %s", tmdb_id, e)
 
                 never_checked_seasons = row is not None and row["season_providers_json"] is None
                 if force or never_checked_seasons or self._stale(row and row["providers_checked_at"], prov_age, now):

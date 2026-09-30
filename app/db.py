@@ -78,6 +78,8 @@ class Database:
             if "links_json" not in show_cols:  # show-page links found automatically (Wikidata)
                 conn.execute("ALTER TABLE shows ADD COLUMN links_json TEXT")
                 conn.execute("ALTER TABLE shows ADD COLUMN links_checked_at REAL")
+            if "episode_order_json" not in show_cols:  # {"group": id, "map": {"s:e": [s, e]}}
+                conn.execute("ALTER TABLE shows ADD COLUMN episode_order_json TEXT")
             if "season_providers_json" not in show_cols:  # where each season streams, {season: providers}
                 conn.execute("ALTER TABLE shows ADD COLUMN season_providers_json TEXT")
 
@@ -153,6 +155,17 @@ class Database:
                 ON CONFLICT(tmdb_id) DO UPDATE SET season_providers_json = excluded.season_providers_json
                 """,
                 (tmdb_id, json.dumps({str(k): v for k, v in by_season.items()})),
+            )
+
+    def set_episode_order(self, tmdb_id: int, group_id: str | None, mapping: dict | None = None) -> None:
+        value = json.dumps({"group": group_id, "map": mapping or {}}) if group_id else None
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO shows (tmdb_id, episode_order_json) VALUES (?, ?)
+                ON CONFLICT(tmdb_id) DO UPDATE SET episode_order_json = excluded.episode_order_json
+                """,
+                (tmdb_id, value),
             )
 
     def show_seasons(self, tmdb_ids: list[int]) -> dict[int, list[int]]:

@@ -20,8 +20,8 @@ function stripped(d) {
     cooldown_days: d.cooldown_days,
     search_urls: d.search_urls,
     channels: d.channels,
-    shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links }) =>
-      ({ tmdb_id, channels, weight, name, title, links })),
+    shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links, episode_order }) =>
+      ({ tmdb_id, channels, weight, name, title, links, episode_order: episode_order || null })),
   };
 }
 
@@ -492,6 +492,7 @@ function showEditor(show) {
   name.addEventListener("input", () => { show.name = name.value.trim() || null; changed(); });
 
   const links = openLinksEditor(show, rerender);
+  const order = episodeOrderField(show);
 
   const remove = el("button", { className: "btn small danger", textContent: "Remove show" });
   remove.addEventListener("click", () => {
@@ -505,8 +506,43 @@ function showEditor(show) {
     el("div", { className: "row2" },
       el("div", {}, el("label", { textContent: "Weight (1 = normal)" }), weight),
       el("div", {}, el("label", { textContent: "Display name" }), name)),
+    order,
     links,
     remove);
+}
+
+// Episode order: TMDB numbers episodes by original air date, which doesn't
+// always match the streaming apps (Firefly's pilot aired last). A TMDB
+// "episode group" such as DVD order can relabel them; picks and history are
+// unaffected.
+const episodeGroups = new Map(); // tmdb_id -> Promise of that show's orders
+
+function episodeOrderField(show) {
+  const DEFAULT = () => el("option", { value: "", textContent: "TMDB's order (original air date)" });
+  const select = el("select", { className: "field", ariaLabel: `Episode order for ${showTitle(show)}` }, DEFAULT());
+  if (show.episode_order) select.append(el("option", { value: show.episode_order, textContent: "Loading…", selected: true }));
+  select.addEventListener("change", () => { show.episode_order = select.value || null; changed(); });
+  const hint = el("p", { className: "hint", textContent: "Loading this show's episode orders from TMDB…" });
+
+  if (!episodeGroups.has(show.tmdb_id)) {
+    episodeGroups.set(show.tmdb_id, api(`api/tmdb/episode_groups?tmdb_id=${show.tmdb_id}`).then((d) => d.groups));
+  }
+  episodeGroups.get(show.tmdb_id).then((groups) => {
+    select.replaceChildren(DEFAULT(), ...groups.map((g) => el("option", {
+      value: g.id, textContent: `${g.type}: ${g.name} (${g.episode_count} episodes)`,
+    })));
+    if (show.episode_order && !groups.some((g) => g.id === show.episode_order)) {
+      select.append(el("option", { value: show.episode_order, textContent: "Saved order (no longer on TMDB)" }));
+    }
+    select.value = show.episode_order || "";
+    hint.textContent = groups.length
+      ? "Changes only the S01E02 numbers on picks, e.g. to match the streaming app."
+      : "TMDB has no other episode orders for this show.";
+  }).catch((e) => {
+    episodeGroups.delete(show.tmdb_id); // try again next time the editor opens
+    hint.textContent = `Couldn't load episode orders (${e.message}).`;
+  });
+  return el("div", {}, el("label", { textContent: "Episode order" }), select, hint);
 }
 
 // A service/value pair editor row: a dropdown of your services (plus "Other…"

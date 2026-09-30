@@ -58,6 +58,9 @@ class ShowConfig:
     title: str | None = None  # TMDB title, informational (keeps the YAML readable)
     # Optional exact deep links, keyed by service name; beats the search link.
     links: dict[str, str] = field(default_factory=dict, hash=False, compare=False)
+    # A TMDB episode group id (e.g. a show's DVD order) to number episodes by.
+    # Only the S01E02 labels change; episodes are still tracked by TMDB's numbers.
+    episode_order: str | None = None
 
 
 @dataclass
@@ -146,6 +149,7 @@ def parse_config(data: object) -> AppConfig:
                 name=str(show["name"]) if show.get("name") else None,
                 title=str(show["title"]) if show.get("title") else None,
                 links=_str_map(show.get("links"), f"{where} links"),
+                episode_order=str(show["episode_order"]).strip() or None if show.get("episode_order") else None,
             )
         )
 
@@ -213,6 +217,8 @@ def dump_config(cfg: AppConfig) -> str:
             d["name"] = s.name
         if s.links:
             d["links"] = dict(s.links)
+        if s.episode_order:
+            d["episode_order"] = s.episode_order
         shows.append(d)
     data: dict = {
         "services": list(cfg.services),
