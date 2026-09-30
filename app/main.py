@@ -9,6 +9,7 @@ import json
 import logging
 import mimetypes
 import os
+import random
 import re
 import sqlite3
 import time
@@ -71,6 +72,7 @@ def _render_index() -> str:
 
 PROVIDER_LIST_TTL_S = 86400
 CHANNEL_POSTERS = 4  # show posters fanned out on each channel button
+ALL_CHANNELS = "*"   # the "Surprise me" channel: every show
 
 
 class State:
@@ -121,6 +123,7 @@ class ShowIn(BaseModel):
     name: str | None = None
     title: str | None = None
     links: dict[str, str] = {}
+    episode_order: str | None = None
 
 
 class ConfigIn(BaseModel):
@@ -409,12 +412,18 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "unwatchable": [
                         info[s.tmdb_id]["show_name"] for s in shows if not info[s.tmdb_id]["_watchable"]
                     ],
-                    # Poster thumbnails for the channel button, watchable shows only.
-                    "posters": [i["thumb_url"] for i in watchable if i["thumb_url"]][:CHANNEL_POSTERS],
+                    "posters": _random_posters(watchable),
                 }
             )
+        # "Surprise me": every show at once (shown when there's more than one channel).
+        everything = [i for s in current_config().shows if (i := info[s.tmdb_id])["_watchable"]]
         return {
             "channels": out,
+            "all_channels": {
+                "name": ALL_CHANNELS,
+                "shows": len(current_config().shows),
+                "posters": _random_posters(everything),
+            },
             "services": current_config().services,
             "sync_error": state.syncer.last_error if state.syncer else "TMDB_API_KEY not set",
             "config_error": state.config_error,
@@ -451,7 +460,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         skip_show: shows to leave out ("different show").
         skip_ep:   "tmdb_id:season:episode" keys to avoid (already seen).
         """
-        shows = current_config().channels.get(channel)
+        cfg = current_config()
+        shows = list(cfg.shows) if channel == ALL_CHANNELS else cfg.channels.get(channel)
         if shows is None:
             raise HTTPException(404, f"unknown channel {channel!r}")
         info = _show_infos(shows)
@@ -475,7 +485,6 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         # Where to watch this episode's season (a service may only have some seasons).
         season_access = picked_info["_season_access"].get(ep["season"], picked_info["_access"])
         row = state.db.get_show(picked.tmdb_id)
-        cfg = current_config()
         return {
             "channel": channel,
             # Emoji for the picked channel and the show's other channels (only those that have one).
@@ -488,7 +497,8 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "access": season_access.to_dict(),
             "season": ep["season"],
             "episode": ep["episode"],
-            "code": f"S{ep['season']:02d}E{ep['episode']:02d}",
+            # In the show's chosen episode order, if any; season/episode stay TMDB's.
+            "code": _episode_code(row, ep["season"], ep["episode"]),
             "title": ep["title"],
             "overview": ep["overview"],
             "air_date": ep["air_date"],
@@ -512,6 +522,31 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         """Undo a 'watched' mark made during the current cooldown window."""
         state.db.undo_watched(user.id, body.tmdb_id, body.season, body.episode, _cooldown_since())
         return {"history": _history(user.id, body.tmdb_id, body.season, body.episode)}
+
+    @app.get("/api/history")
+    async def recent_history(user: User = Depends(current_user), limit: int = Query(20, ge=1, le=100)):
+        """Your latest watched/skipped marks, newest first."""
+        cfg = current_config()
+        rows = state.db.recent_history(user.id, limit)
+        shows = state.db.get_shows(list({r["tmdb_id"] for r in rows}))
+        since = _cooldown_since()
+        out = []
+        for r in rows:
+            show, row = cfg.find_show(r["tmdb_id"]), shows.get(r["tmdb_id"])
+            name = (show and show.name) or (row and row["name"]) or (show and show.title) or f"TMDB #{r['tmdb_id']}"
+            out.append({
+                "id": r["id"], "tmdb_id": r["tmdb_id"], "show_name": name,
+                "code": _episode_code(row, r["season"], r["episode"]), "title": r["title"],
+                "kind": r["kind"], "at": r["at"], "cooling_down": r["at"] >= since,
+            })
+        return {"history": out}
+
+    @app.delete("/api/history/{entry_id}")
+    async def undo_history(entry_id: int, user: User = Depends(current_user)):
+        """Undo one of your marks (the episode can come up again)."""
+        if not state.db.delete_history_entry(user.id, entry_id):
+            raise HTTPException(404, "no such history entry")
+        return {"ok": True}
 
     @app.delete("/api/history")
     async def clear_history(user: User = Depends(current_user)):
@@ -544,6 +579,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "name": s.name,
                     "title": (row["name"] if row and row["name"] else None) or s.title,
                     "links": s.links,
+                    "episode_order": s.episode_order,
                     "poster_url": image_url(row["poster_path"], "w185") if row else None,
                     "watch": _watch_fallbacks(cfg, s, row),
                 }
@@ -593,6 +629,16 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             return {"results": await state.tmdb.search_tv(q)}
         except httpx.HTTPError as e:
             raise HTTPException(502, f"TMDB search failed: {e}")
+
+    @app.get("/api/tmdb/episode_groups")
+    async def tmdb_episode_groups(tmdb_id: int, _: User = Depends(admin_user)):
+        """A show's alternate episode orders, for its Episode order setting."""
+        if state.tmdb is None:
+            raise HTTPException(503, "TMDB_API_KEY not set")
+        try:
+            return {"groups": await state.tmdb.list_episode_groups(tmdb_id)}
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"TMDB episode orders failed: {e}")
 
     @app.get("/api/tmdb/providers")
     async def tmdb_providers(_: User = Depends(admin_user)):
@@ -699,6 +745,21 @@ def _auto_links(row) -> dict[str, str]:
         return json.loads(row["links_json"] or "{}") if row else {}
     except (KeyError, IndexError, ValueError):
         return {}
+
+
+def _random_posters(infos: list[dict]) -> list[str]:
+    """Up to CHANNEL_POSTERS poster thumbnails, a different random few each time."""
+    urls = [i["thumb_url"] for i in infos if i["thumb_url"]]
+    return random.sample(urls, min(CHANNEL_POSTERS, len(urls)))
+
+
+def _episode_code(row, season: int, episode: int) -> str:
+    """"S01E02", using the show's chosen episode order when it covers this episode."""
+    if row and row["episode_order_json"]:
+        mapped = json.loads(row["episode_order_json"]).get("map", {}).get(f"{season}:{episode}")
+        if mapped:
+            season, episode = mapped
+    return f"S{season:02d}E{episode:02d}"
 
 
 def _build_info() -> dict:

@@ -818,6 +818,122 @@ def test_access_endpoint_reflects_edited_links(client):
     assert client.get("/api/access", params={"tmdb_id": 1}).status_code == 401
 
 
+# --- episode order (e.g. Firefly's DVD order) -------------------------------
+
+# Firefly aired out of order: TMDB's S1E1 is "The Train Job", but in DVD order
+# the pilot "Serenity" (TMDB's S1E11) comes first.
+FIREFLY_DVD = {"id": "dvd1", "name": "DVD Order", "groups": [
+    {"name": "Specials", "order": 0, "episodes": [{"season_number": 0, "episode_number": 1, "order": 0}]},
+    {"name": "Season 1", "order": 1, "episodes": [
+        {"season_number": 1, "episode_number": 1, "order": 1},   # The Train Job
+        {"season_number": 1, "episode_number": 11, "order": 0},  # Serenity
+        {"season_number": 1, "episode_number": 2, "order": 2},
+    ]},
+]}
+
+
+def _episode_group_tmdb(calls=None):
+    def handler(request):
+        if calls is not None:
+            calls.append(request.url.path)
+        if request.url.path == "/3/tv/1/episode_groups":
+            return httpx.Response(200, json={"results": [
+                {"id": "dvd1", "name": "DVD Order", "type": 3, "episode_count": 14},
+                {"id": "x", "name": "Story", "type": 5, "episode_count": 14},
+            ]})
+        if request.url.path == "/3/tv/episode_group/dvd1":
+            return httpx.Response(200, json=FIREFLY_DVD)
+        return httpx.Response(404)
+    return httpx.MockTransport(handler)
+
+
+def test_fetch_episode_order_maps_tmdb_numbers():
+    client = TMDBClient("k", transport=_episode_group_tmdb())
+    mapping = asyncio.run(client.fetch_episode_order("dvd1"))
+    assert mapping == {"1:11": [1, 1], "1:1": [1, 2], "1:2": [1, 3], "0:1": [0, 1]}
+    groups = asyncio.run(client.list_episode_groups(1))
+    assert [(g["id"], g["type"]) for g in groups] == [("dvd1", "DVD"), ("x", "Story arc")]
+
+
+def test_episode_order_relabels_picks_but_not_history(client, tmp_path):
+    db = main.state.db
+    cfg = parse_config({"shows": [{"tmdb_id": 1, "channels": ["short"], "episode_order": "dvd1"}]})
+    syncer = Syncer(Settings(wikidata_links=False), db, TMDBClient("k", transport=_episode_group_tmdb()))
+    with db.connect() as conn:  # episodes and providers are fresh; only the order is new
+        conn.execute("UPDATE shows SET episodes_refreshed_at = ?, providers_checked_at = ?, "
+                     "season_providers_json = '{}'", (time.time(), time.time()))
+    asyncio.run(syncer.run_once(cfg))
+    assert syncer.last_error is None
+    assert json.loads(db.get_show(1)["episode_order_json"])["map"]["1:1"] == [1, 2]
+
+    seen = {}
+    for _ in range(40):
+        ep = client.get("/api/pick", params={"channel": "short"}).json()
+        seen[(ep["season"], ep["episode"])] = ep["code"]
+    # TMDB's 1x1 is labelled as DVD episode 2; numbers the order doesn't cover keep TMDB's.
+    assert seen == {(1, 1): "S01E02", (1, 2): "S01E03", (1, 3): "S01E03"}
+    # History still uses TMDB's numbers.
+    client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": 1, "kind": "watched"})
+    assert {client.get("/api/pick", params={"channel": "short"}).json()["episode"] for _ in range(20)} == {2, 3}
+
+    # Back to TMDB's order: the next sync drops the mapping.
+    asyncio.run(syncer.run_once(parse_config({"shows": [{"tmdb_id": 1, "channels": ["short"]}]})))
+    assert db.get_show(1)["episode_order_json"] is None
+
+
+def test_episode_order_in_config_and_api(client):
+    text = dump_config(parse_config({"shows": [{"tmdb_id": 5, "channels": ["a"], "episode_order": "dvd1"}]}))
+    assert "episode_order: dvd1" in text
+    assert parse_config(yaml.safe_load(text)).shows[0].episode_order == "dvd1"
+
+    cfg = client.get("/api/config").json()
+    assert cfg["shows"][0]["episode_order"] is None
+    cfg["shows"][0]["episode_order"] = "dvd1"
+    assert client.put("/api/config", json=cfg).status_code == 200
+    assert client.get("/api/config").json()["shows"][0]["episode_order"] == "dvd1"
+
+    main.state.tmdb = TMDBClient("k", transport=_episode_group_tmdb())
+    groups = client.get("/api/tmdb/episode_groups", params={"tmdb_id": 1}).json()["groups"]
+    assert groups[0] == {"id": "dvd1", "name": "DVD Order", "type": "DVD", "episode_count": 14}
+
+
+def test_surprise_me_rolls_from_every_show(client):
+    db = main.state.db
+    db.set_providers(2, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})  # both watchable now
+    data = client.get("/api/channels").json()
+    assert data["all_channels"]["name"] == "*" and data["all_channels"]["shows"] == 2
+    picked = {client.get("/api/pick", params={"channel": "*"}).json()["tmdb_id"] for _ in range(30)}
+    assert picked == {1, 2}  # show 2 isn't in "short"; "*" covers every channel
+
+
+def test_channel_posters_are_a_random_few(monkeypatch):
+    infos = [{"thumb_url": f"p{i}"} for i in range(6)] + [{"thumb_url": None}]
+    seen = {tuple(main._random_posters(infos)) for _ in range(30)}
+    assert all(len(p) == main.CHANNEL_POSTERS and set(p) <= {f"p{i}" for i in range(6)} for p in seen)
+    assert len(seen) > 1  # not always the same four
+    assert main._random_posters(infos[:2]) in (["p0", "p1"], ["p1", "p0"])
+
+
+def test_recent_history_and_undo(client):
+    client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": 1, "kind": "watched"})
+    client.post("/api/history", json={"tmdb_id": 2, "season": 1, "episode": 3, "kind": "skipped"})
+    hist = client.get("/api/history").json()["history"]
+    assert [(h["show_name"], h["code"], h["kind"]) for h in hist] == [
+        ("Show 2", "S01E03", "skipped"), ("Show 1", "S01E01", "watched")]  # newest first
+    assert hist[1]["title"] == "Ep 1" and hist[1]["cooling_down"] is True
+
+    # Someone else can't undo your marks.
+    client.post("/api/users", json={"username": "kid", "password": "kidpass123"})
+    other = TestClient(client.app)
+    _login_as(other, "kid", "kidpass123")
+    assert other.get("/api/history").json()["history"] == []
+    assert other.delete(f"/api/history/{hist[1]['id']}").status_code == 404
+
+    assert client.delete(f"/api/history/{hist[1]['id']}").json() == {"ok": True}
+    assert [h["show_name"] for h in client.get("/api/history").json()["history"]] == ["Show 2"]
+    assert client.delete(f"/api/history/{hist[1]['id']}").status_code == 404
+
+
 def test_openable_services_come_before_searches():
     # Prime is higher in your list, but only Hulu has a link to the show itself.
     cfg = AppConfig(services=["Amazon Prime Video", "Netflix", "Hulu", "Fubo"])
@@ -867,6 +983,9 @@ def test_icons_and_manifest_are_served(client):
         assert re.search(rf'href="{re.escape(path)}\?v=[0-9a-f]{{10}}"', page), path
     manifest = client.get("/static/manifest.webmanifest")
     assert manifest.headers["content-type"].startswith("application/manifest+json")
+    # Installable as an app: its own window, and the 192/512px icons browsers require.
+    assert manifest.json()["display"] == "standalone"
+    assert {"192x192", "512x512"} <= {i["sizes"] for i in manifest.json()["icons"]}
     for icon in manifest.json()["icons"]:
         assert client.get(f"/static/{icon['src']}").status_code == 200, icon["src"]
     # Every <use href="#…"> points at an icon defined in the page's sprite.

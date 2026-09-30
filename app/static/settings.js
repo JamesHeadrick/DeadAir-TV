@@ -20,8 +20,8 @@ function stripped(d) {
     cooldown_days: d.cooldown_days,
     search_urls: d.search_urls,
     channels: d.channels,
-    shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links }) =>
-      ({ tmdb_id, channels, weight, name, title, links })),
+    shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links, episode_order }) =>
+      ({ tmdb_id, channels, weight, name, title, links, episode_order: episode_order || null })),
   };
 }
 
@@ -72,9 +72,11 @@ async function openSettings() {
     api("api/channels").then((d) => {
       $("cooldown-text").textContent = `for ${d.cooldown_days} days`;
     }).catch(() => {});
+    loadRecentHistory();
     return;
   }
   loadUsers();
+  loadRecentHistory();
   if (!(await ensureDraft())) return;
   renderSettings();
   loadProviders();
@@ -492,6 +494,7 @@ function showEditor(show) {
   name.addEventListener("input", () => { show.name = name.value.trim() || null; changed(); });
 
   const links = openLinksEditor(show, rerender);
+  const order = episodeOrderField(show);
 
   const remove = el("button", { className: "btn small danger", textContent: "Remove show" });
   remove.addEventListener("click", () => {
@@ -505,8 +508,43 @@ function showEditor(show) {
     el("div", { className: "row2" },
       el("div", {}, el("label", { textContent: "Weight (1 = normal)" }), weight),
       el("div", {}, el("label", { textContent: "Display name" }), name)),
+    order,
     links,
     remove);
+}
+
+// Episode order: TMDB numbers episodes by original air date, which doesn't
+// always match the streaming apps (Firefly's pilot aired last). A TMDB
+// "episode group" such as DVD order can relabel them; picks and history are
+// unaffected.
+const episodeGroups = new Map(); // tmdb_id -> Promise of that show's orders
+
+function episodeOrderField(show) {
+  const DEFAULT = () => el("option", { value: "", textContent: "TMDB's order (original air date)" });
+  const select = el("select", { className: "field", ariaLabel: `Episode order for ${showTitle(show)}` }, DEFAULT());
+  if (show.episode_order) select.append(el("option", { value: show.episode_order, textContent: "Loading…", selected: true }));
+  select.addEventListener("change", () => { show.episode_order = select.value || null; changed(); });
+  const hint = el("p", { className: "hint", textContent: "Loading this show's episode orders from TMDB…" });
+
+  if (!episodeGroups.has(show.tmdb_id)) {
+    episodeGroups.set(show.tmdb_id, api(`api/tmdb/episode_groups?tmdb_id=${show.tmdb_id}`).then((d) => d.groups));
+  }
+  episodeGroups.get(show.tmdb_id).then((groups) => {
+    select.replaceChildren(DEFAULT(), ...groups.map((g) => el("option", {
+      value: g.id, textContent: `${g.type}: ${g.name} (${g.episode_count} episodes)`,
+    })));
+    if (show.episode_order && !groups.some((g) => g.id === show.episode_order)) {
+      select.append(el("option", { value: show.episode_order, textContent: "Saved order (no longer on TMDB)" }));
+    }
+    select.value = show.episode_order || "";
+    hint.textContent = groups.length
+      ? "Changes only the S01E02 numbers on picks, e.g. to match the streaming app."
+      : "TMDB has no other episode orders for this show.";
+  }).catch((e) => {
+    episodeGroups.delete(show.tmdb_id); // try again next time the editor opens
+    hint.textContent = `Couldn't load episode orders (${e.message}).`;
+  });
+  return el("div", {}, el("label", { textContent: "Episode order" }), select, hint);
 }
 
 // A service/value pair editor row: a dropdown of your services (plus "Other…"
@@ -625,6 +663,47 @@ async function refreshShowInfo() {
   } catch { /* the list just stays as it is */ }
 }
 
+// --- recently marked (your own watched / skipped) ----------------------------
+
+async function loadRecentHistory() {
+  const list = $("recent-history");
+  try {
+    const { history } = await api("api/history?limit=20");
+    if (!history.length) {
+      return list.replaceChildren(el("li", { className: "hint", textContent: "Nothing marked yet." }));
+    }
+    list.replaceChildren(...history.map(recentRow));
+  } catch (e) {
+    list.replaceChildren(el("li", { className: "hint", textContent: e.message }));
+  }
+}
+
+function recentRow(h) {
+  const undo = el("button", {
+    className: "btn small", textContent: "Undo",
+    title: "Forget this mark, so the episode can come up again",
+    ariaLabel: `Undo ${h.kind === "watched" ? "watched" : "skip"}: ${h.show_name} ${h.code}`,
+  });
+  undo.addEventListener("click", async () => {
+    undo.disabled = true;
+    try {
+      await api(`api/history/${h.id}`, { method: "DELETE" });
+      loadRecentHistory();
+    } catch (e) {
+      undo.disabled = false;
+      showNotice($("settings-error"), `Couldn't undo: ${e.message}`, true);
+    }
+  });
+  const what = [h.code, h.title].filter(Boolean).join(" · ");
+  return el("li", {},
+    el("span", { className: `mark ${h.kind}`, textContent: h.kind === "watched" ? "✓" : "✕",
+      title: h.kind === "watched" ? "Watched" : "Skipped" }),
+    el("span", { className: "grow" },
+      el("b", { textContent: h.show_name }), " ", what,
+      el("small", { textContent: `${h.kind === "watched" ? "Watched" : "Skipped"} ${ago(h.at)}${h.cooling_down ? "" : " · can come up again"}` })),
+    undo);
+}
+
 // --- account & users ------------------------------------------------------------
 
 async function changePassword(e) {
@@ -727,6 +806,7 @@ $("clear-history").addEventListener("click", async () => {
   try {
     const { deleted } = await api("api/history", { method: "DELETE" });
     showNotice($("settings-error"), `Cleared ${deleted} history entr${deleted === 1 ? "y" : "ies"}.`);
+    loadRecentHistory();
   } catch (e) {
     showNotice($("settings-error"), `Couldn't clear history: ${e.message}`, true);
   }

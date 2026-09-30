@@ -29,10 +29,15 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 16px;
+  padding: 12px 16px;
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
+  /* Stays at the top so ← and ⚙ are always in reach on long pages. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
 }
 
 h1 { font-size: 1.4rem; margin: 0; letter-spacing: .02em; flex: 1; } /* pushes header buttons right */
@@ -75,6 +80,7 @@ main {
   .channel-grid { grid-template-columns: 1fr 1fr; }
 }
 
+.channel-btn.surprise { background: linear-gradient(135deg, #12403c, var(--surface)); }
 .channel-btn {
   position: relative;
   display: flex;
@@ -388,7 +394,7 @@ main {
 .service-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .service-row .btn.small { min-height: 36px; min-width: 36px; padding: 0; background: var(--bg); font-size: 1rem; }
 .service-row .btn.small:disabled { opacity: .3; cursor: default; }
-.settings-show { flex-direction: column; scroll-margin-top: 12px; }
+.settings-show { flex-direction: column; scroll-margin-top: 84px; } /* clear the sticky header */
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
 .settings-show .head .grow { flex: 1; min-width: 0; }
 .settings-show .head { align-items: flex-start; }
@@ -462,6 +468,16 @@ footer p { margin: 4px 0; }
 .credits p { margin: 6px 0; }
 .credits a:not(.tmdb-logo) { color: var(--accent); }
 .credits .tmdb-logo { font-size: 1.4rem; }
+.panel h3.sub { margin: 14px 0 6px; font-size: .85rem; color: var(--muted); font-weight: 600; }
+.recent-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.recent-list li { display: flex; align-items: center; gap: 10px; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.recent-list li.hint { background: none; padding: 0; }
+.recent-list .grow { flex: 1; min-width: 0; font-size: .9rem; }
+.recent-list small { display: block; color: var(--muted); font-size: .78rem; }
+.recent-list .mark { flex: none; width: 1.4em; text-align: center; font-weight: 700; }
+.recent-list .mark.watched { color: var(--accent); }
+.recent-list .mark.skipped { color: var(--muted); }
+.recent-list .btn { background: var(--surface); flex: none; }
 .credit-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .credit-list li { display: flex; align-items: center; gap: 12px; }
 .credit-icon {

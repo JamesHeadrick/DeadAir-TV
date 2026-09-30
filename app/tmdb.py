@@ -8,6 +8,10 @@ API_BASE = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p"
 
 PROVIDER_TYPES = ("flatrate", "free", "ads", "rent", "buy")
+EPISODE_GROUP_TYPES = {
+    1: "Original air date", 2: "Absolute", 3: "DVD", 4: "Digital",
+    5: "Story arc", 6: "Production", 7: "TV",
+}
 
 # TMDB allows up to 20 sub-requests per call via append_to_response.
 _APPEND_LIMIT = 20
@@ -110,6 +114,39 @@ class TMDBClient:
             }
             for p in results
         ]
+
+    async def list_episode_groups(self, tmdb_id: int) -> list[dict]:
+        """A show's alternate episode orders (DVD, Digital, Story arc, ...)."""
+        data = await self._get(f"/tv/{tmdb_id}/episode_groups")
+        return [
+            {
+                "id": g["id"],
+                "name": g.get("name") or "",
+                "type": EPISODE_GROUP_TYPES.get(g.get("type"), "Other"),
+                "episode_count": g.get("episode_count") or 0,
+            }
+            for g in data.get("results", [])
+            if g.get("id")
+        ]
+
+    async def fetch_episode_order(self, group_id: str) -> dict[str, list[int]]:
+        """Map "season:episode" (TMDB's numbers) to [season, episode] in an episode group.
+
+        Groups become seasons in their listed order (a group named like
+        "Specials" is season 0); episodes are numbered by their position.
+        """
+        data = await self._get(f"/tv/episode_group/{group_id}")
+        out: dict[str, list[int]] = {}
+        season = 0
+        for group in sorted(data.get("groups", []), key=lambda g: g.get("order", 0)):
+            special = "special" in (group.get("name") or "").lower()
+            if not special:
+                season += 1
+            episodes = sorted(group.get("episodes", []), key=lambda e: e.get("order", 0))
+            for i, ep in enumerate(episodes, start=1):
+                key = f"{ep.get('season_number')}:{ep.get('episode_number')}"
+                out.setdefault(key, [0 if special else season, i])
+        return out
 
     async def fetch_providers(self, tmdb_id: int, region: str, season: int | None = None) -> dict:
         """Watch providers for one region, grouped by type, for the whole show

@@ -78,6 +78,8 @@ class Database:
             if "links_json" not in show_cols:  # show-page links found automatically (Wikidata)
                 conn.execute("ALTER TABLE shows ADD COLUMN links_json TEXT")
                 conn.execute("ALTER TABLE shows ADD COLUMN links_checked_at REAL")
+            if "episode_order_json" not in show_cols:  # {"group": id, "map": {"s:e": [s, e]}}
+                conn.execute("ALTER TABLE shows ADD COLUMN episode_order_json TEXT")
             if "season_providers_json" not in show_cols:  # where each season streams, {season: providers}
                 conn.execute("ALTER TABLE shows ADD COLUMN season_providers_json TEXT")
 
@@ -153,6 +155,17 @@ class Database:
                 ON CONFLICT(tmdb_id) DO UPDATE SET season_providers_json = excluded.season_providers_json
                 """,
                 (tmdb_id, json.dumps({str(k): v for k, v in by_season.items()})),
+            )
+
+    def set_episode_order(self, tmdb_id: int, group_id: str | None, mapping: dict | None = None) -> None:
+        value = json.dumps({"group": group_id, "map": mapping or {}}) if group_id else None
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO shows (tmdb_id, episode_order_json) VALUES (?, ?)
+                ON CONFLICT(tmdb_id) DO UPDATE SET episode_order_json = excluded.episode_order_json
+                """,
+                (tmdb_id, value),
             )
 
     def show_seasons(self, tmdb_ids: list[int]) -> dict[int, list[int]]:
@@ -265,6 +278,21 @@ class Database:
                    ORDER BY at DESC LIMIT 1""",
                 (user_id, tmdb_id, season, episode),
             ).fetchone()
+
+    def recent_history(self, user_id: int, limit: int = 20) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                """SELECT h.id, h.tmdb_id, h.season, h.episode, h.kind, h.at, e.title
+                   FROM episode_history h
+                   LEFT JOIN episodes e ON e.tmdb_id = h.tmdb_id AND e.season = h.season AND e.episode = h.episode
+                   WHERE h.user_id = ? ORDER BY h.at DESC, h.id DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+
+    def delete_history_entry(self, user_id: int, entry_id: int) -> bool:
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM episode_history WHERE id = ? AND user_id = ?", (entry_id, user_id))
+            return cur.rowcount > 0
 
     def clear_history(self, user_id: int) -> int:
         with self.connect() as conn:

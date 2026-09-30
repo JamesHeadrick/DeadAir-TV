@@ -24,8 +24,13 @@ To keep an episode out of rotation for a while, mark it:
   straight away.
 
 When an episode comes back up after its cooldown, the card mentions it
-(e.g. "You watched this 3 weeks ago"). You can change the cooldown or clear
-the history in Settings.
+(e.g. "You watched this 3 weeks ago"). Settings lists what you've marked
+recently, each with an **Undo**, and can change the cooldown or clear the
+history.
+
+With more than one channel, **🎲 Surprise me** at the top of the channel list
+rolls from every show at once. Each channel button shows a few of its shows'
+posters, a different random few each time.
 
 - Episode lists come from TMDB and are cached in SQLite. They refresh weekly.
 - Once a day it asks TMDB (JustWatch data) where each show is streaming and
@@ -136,6 +141,19 @@ login cookie is marked HTTPS-only automatically when the request comes in over
 HTTPS. Over plain `http://` on a LAN it still works, but the cookie is sent
 unencrypted.
 
+### Install as an app
+
+Over HTTPS, DeadAir can be installed like an app. It then opens in its own
+window with the TV icon, without the browser bar.
+
+- **Android / desktop Chrome, Edge, Vivaldi…**: Settings → Account → **Install
+  DeadAir as an app**, or the browser menu's *Install app*. A plain *Add to
+  Home screen* shortcut still opens in the browser.
+- **iPhone / iPad (Safari)**: Share → *Add to Home Screen*.
+
+Updates still arrive on a normal reload; nothing is cached offline. In the app
+window, use your phone's back gesture or the ← button to go back.
+
 ## Configuration
 
 ### All shows and Settings (⚙)
@@ -145,8 +163,13 @@ shows** is where shows are managed:
 
 - **Add a show**: search TMDB by name at the top of the page.
 - **Edit**: on each show, change its channel tags (pick an existing channel or
-  type a new one), its weight, a display name, and its Open links, or remove
-  it. Each show also lists where you can watch it.
+  type a new one), its weight, a display name, its episode order and its Open
+  links, or remove it. Each show also lists where you can watch it.
+- **Episode order**: TMDB numbers episodes by original air date, which
+  doesn't always match the streaming apps. Firefly aired its pilot last, so
+  TMDB's S01E01 is "The Train Job", which is episode 2 on Hulu. Pick one of the
+  show's alternate orders from TMDB (e.g. *DVD*) to number its picks that way.
+  Only the S01E02 labels change; watched history is unaffected.
 
 Viewers see the same list without the editing controls. Settings has the rest:
 
@@ -159,7 +182,8 @@ Viewers see the same list without the editing controls. Settings has the rest:
   suggestions or type your own), plus **Rename** and **Delete**, which apply
   to every show tagged with that channel. Renaming onto an existing channel
   merges the two.
-- **Watched & skipped**: set the cooldown length and clear the history.
+- **Watched & skipped**: set the cooldown length, see and undo your recent
+  marks, and clear the history.
 - **Search links**: add or override a service's search URL.
 
 Both pages share one **Save** bar, and unsaved edits carry over when you

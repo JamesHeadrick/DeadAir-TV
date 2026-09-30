@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <!-- Source for the home-screen PNGs (tools/make_icons.py): app/static/icon.svg
        on a full square (phones round the corners themselves), with the TV kept
-       inside the middle 80% so Android's round/squircle masks don't clip it. -->
+       within the 40% safe circle (reach ~0.36) so round launcher icons don't clip it. -->
   <rect width="64" height="64" fill="#171a22"/>
-  <g transform="translate(32 33) scale(.78) translate(-32 -33)">
+  <g transform="translate(32 33) scale(.68) translate(-32 -33)">
     <g stroke="#4fd1c5" stroke-linecap="round" stroke-linejoin="round" fill="none">
       <path d="M32 20 21 8M32 20l11-10" stroke-width="3"/>
       <path d="M18 55l-3 4M46 55l3 4" stroke-width="3.5"/>
