@@ -398,7 +398,14 @@ main {
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
 .settings-show .head .grow { flex: 1; min-width: 0; }
 .settings-show .head { align-items: flex-start; }
-.settings-show .head .tag { flex: none; color: var(--accent); background: var(--surface-2); border-radius: 8px; padding: 4px 10px; font-size: .85rem; }
+.settings-show .row-top { display: flex; gap: 10px; align-items: flex-start; }
+.settings-show .row-top .head { flex: 1; min-width: 0; width: auto; }
+.show-item > .grow { flex: 1; min-width: 0; }
+.show-item .side { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.show-item .side .btn { min-height: 34px; padding: 4px 10px; font-size: .85rem; }
+.show-item .side .tag { color: var(--accent); }
+.show-item .roll .icon { width: 1.2em; height: 1.2em; margin-right: 5px; }
+.show-item .roll:disabled { opacity: .4; cursor: not-allowed; }
 .show-add { margin-bottom: 12px; }
 .show-add .pick-list:not(:empty) { margin-top: 8px; }
 .settings-show .editor { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }

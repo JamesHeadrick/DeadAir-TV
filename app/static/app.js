@@ -227,7 +227,28 @@ function surpriseButton(all) {
   return btn;
 }
 
-function enterChannel(channel) {
+// Rolling one show only ("let's watch a random Frasier"), from All shows.
+let soloShow = null; // { id, name } while rolling just that show
+
+function rollShow(id, name) {
+  current = null;
+  enterChannel(ALL_CHANNELS, { id, name });
+}
+
+// A Roll button for a show's row on All shows.
+function rollButton(s, watchable) {
+  const btn = el("button", {
+    className: "btn small roll", disabled: !watchable,
+    title: watchable ? `Roll a random episode of ${s.name}` : `${s.name} isn't on your services right now`,
+    ariaLabel: `Roll a random episode of ${s.name}`,
+  });
+  btn.innerHTML = '<svg class="icon" aria-hidden="true" focusable="false"><use href="#i-dice"/></svg><span>Roll</span>';
+  btn.addEventListener("click", (e) => { e.stopPropagation(); rollShow(s.id, s.name); });
+  return btn;
+}
+
+function enterChannel(channel, solo = null) {
+  soloShow = solo;
   currentChannel = channel;
   skippedShows = new Set();
   seenEpisodes = [];
@@ -239,6 +260,7 @@ async function pick(mode = "any") {
   const params = new URLSearchParams({ channel: currentChannel });
   if (current && mode === "other-show") skippedShows.add(current.tmdb_id);
   if (current && mode === "same-show") params.set("show", current.tmdb_id);
+  if (soloShow) params.set("show", soloShow.id);
   skippedShows.forEach((id) => params.append("skip_show", id));
   seenEpisodes.forEach((k) => params.append("skip_ep", k));
 
@@ -263,8 +285,10 @@ async function pick(mode = "any") {
 function render(ep, error) {
   current = ep;
   renderChannelLabel(ep);
-  $("other-show").hidden = !ep || ep.other_shows === 0;
-  $("same-show").hidden = !ep;
+  // Rolling one show: Reroll already means "another episode", and there's no other show.
+  $("other-show").hidden = !ep || ep.other_shows === 0 || !!soloShow;
+  $("same-show").hidden = !ep || !!soloShow;
+  $("same-show").parentElement.hidden = $("other-show").hidden && $("same-show").hidden;
   $("watched").hidden = !ep;
   $("skip").hidden = !ep;
   renderHistory(ep);
@@ -358,9 +382,10 @@ function renderChannelLabel(ep) {
     .filter((c) => c !== currentChannel)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   const emoji = currentChannel === ALL_CHANNELS ? "🎲" : ep?.channel_emoji?.[currentChannel];
+  const title = soloShow ? `Just ${soloShow.name}` : channelTitle(currentChannel);
   $("p-channel").replaceChildren(
     emoji ? el("span", { className: "emoji", textContent: emoji, ariaHidden: "true" }) : "",
-    el("span", { textContent: channelTitle(currentChannel) }),
+    el("span", { textContent: title }),
     ...others.map((c) => {
       const link = el("button", {
         className: "other", textContent: c, title: `Roll on ${c} instead`,
@@ -509,7 +534,8 @@ function seasonLines(groups) {
 function showItem(s) {
   return el("li", { className: "show-item" },
     s.poster_url ? el("img", { className: "poster", src: s.poster_url, alt: "" }) : el("div", { className: "poster" }),
-    el("div", {}, el("h3", { textContent: s.show_name }), ...accessBits(s.access, s.channels)),
+    el("div", { className: "grow" }, el("h3", { textContent: s.show_name }), ...accessBits(s.access, s.channels)),
+    el("div", { className: "side" }, rollButton({ id: s.tmdb_id, name: s.show_name }, s.watchable)),
   );
 }
 

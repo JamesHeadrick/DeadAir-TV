@@ -32,6 +32,11 @@ With more than one channel, **🎲 Surprise me** at the top of the channel list
 rolls from every show at once. Each channel button shows a few of its shows'
 posters, a different random few each time.
 
+To watch a random episode of one particular show ("let's watch a random
+Frasier"), tap **🎲 Roll** next to it on **All shows**. The pick card then
+sticks to that show: **Reroll** gives another of its episodes, and
+*Different show* / *Another episode* are hidden.
+
 - Episode lists come from TMDB and are cached in SQLite. They refresh weekly.
 - Once a day it asks TMDB (JustWatch data) where each show is streaming and
   compares that against your services. Best option first:
@@ -45,7 +50,8 @@ posters, a different random few each time.
   option, or isn't picked if there's nowhere to watch it. All shows lists
   these per season (e.g. *S1–5: Netflix*, *S6–8: not on your services*).
 - An **All shows** page lists every show, where you can watch it, and which
-  other services carry it.
+  other services carry it, with a **Roll** button for a random episode of
+  just that show.
 - Username/password logins. **Admins** manage settings and users.
   **Viewers** can pick episodes and keep their own watched/skipped history.
 - One mobile-first dark page.

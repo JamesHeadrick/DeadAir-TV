@@ -466,6 +466,11 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             raise HTTPException(404, f"unknown channel {channel!r}")
         info = _show_infos(shows)
         watchable = [s for s in shows if info[s.tmdb_id]["_watchable"]]
+        if show is not None:  # one show only ("another episode", or rolling a show from All shows)
+            if show not in info:
+                raise HTTPException(404, "unknown show")
+            if not info[show]["_watchable"]:
+                raise HTTPException(404, f"{info[show]['show_name']} isn't on your services right now")
         if not watchable:
             raise HTTPException(404, "none of this channel's shows are on your services")
         candidates = [s for s in watchable if s.tmdb_id not in skip_show]
@@ -693,6 +698,7 @@ def _show_infos(shows: list[ShowConfig]) -> dict[int, dict]:
             "_season_access": season_access,
             "_skip_seasons": [f"{show.tmdb_id}:{s}" for s in skipped],
             "_watchable": watchable,
+            "watchable": watchable,  # for All shows' Roll button
         }
     return out
 

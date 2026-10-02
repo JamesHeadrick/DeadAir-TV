@@ -897,6 +897,17 @@ def test_episode_order_in_config_and_api(client):
     assert groups[0] == {"id": "dvd1", "name": "DVD Order", "type": "DVD", "episode_count": 14}
 
 
+def test_roll_one_show_from_all_shows(client):
+    # "Let's watch a random Show 1": every channel, that show only.
+    picks = [client.get("/api/pick", params={"channel": "*", "show": 1}).json() for _ in range(10)]
+    assert {p["tmdb_id"] for p in picks} == {1}
+    shows = {s["tmdb_id"]: s for s in client.get("/api/shows").json()["shows"]}
+    assert shows[1]["watchable"] is True and shows[2]["watchable"] is False  # show 2 is only on Hulu
+    r = client.get("/api/pick", params={"channel": "*", "show": 2})
+    assert r.status_code == 404 and r.json()["detail"] == "Show 2 isn't on your services right now"
+    assert client.get("/api/pick", params={"channel": "*", "show": 999}).json()["detail"] == "unknown show"
+
+
 def test_surprise_me_rolls_from_every_show(client):
     db = main.state.db
     db.set_providers(2, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})  # both watchable now

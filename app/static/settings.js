@@ -450,12 +450,18 @@ function showRow(show) {
       searchOnly.length
         ? el("p", { className: "search-only", textContent: `Opens a search on ${searchOnly.join(", ")}` })
         : null),
-    el("span", { className: "tag", textContent: open ? "Done" : "Edit" }));
-  head.addEventListener("click", () => {
+  );
+  const toggle = () => {
     open ? expanded.delete(show.tmdb_id) : expanded.add(show.tmdb_id);
     renderShows();
-  });
-  const li = el("li", { className: "show-item settings-show" }, head);
+  };
+  head.addEventListener("click", toggle);
+  const edit = el("button", { className: "btn small tag", textContent: open ? "Done" : "Edit", ariaExpanded: String(open) });
+  edit.addEventListener("click", toggle);
+  // Rolling needs the show saved and checked; a just-added show isn't yet.
+  const roll = rollButton({ id: show.tmdb_id, name: listName(show) }, !!info?.watchable);
+  const li = el("li", { className: "show-item settings-show" },
+    el("div", { className: "row-top" }, head, el("div", { className: "side" }, edit, roll)));
   li.dataset.tmdb = show.tmdb_id;
   if (open) li.append(showEditor(show));
   return li;
