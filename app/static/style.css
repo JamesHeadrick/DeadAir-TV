@@ -485,6 +485,17 @@ footer p { margin: 4px 0; }
 .recent-list .mark.watched { color: var(--accent); }
 .recent-list .mark.skipped { color: var(--muted); }
 .recent-list .btn { background: var(--surface); flex: none; }
+.toast {
+  /* Under the sticky header, over the episode image, clear of the buttons. */
+  position: fixed; left: 50%; top: 76px; transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px)); z-index: 20;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-radius: 14px;
+  background: var(--surface-2); box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+.toast .grow { flex: 1; min-width: 0; font-size: .9rem; }
+.toast .btn.small { min-height: 36px; flex: none; background: var(--surface); }
+.toast .btn.small.danger { background: var(--warn-bg); }
 .credit-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .credit-list li { display: flex; align-items: center; gap: 12px; }
 .credit-icon {

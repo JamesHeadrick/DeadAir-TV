@@ -97,6 +97,12 @@
       </div>
     </div>
     <p id="pick-status" class="notice" hidden></p>
+    <!-- After Skip: undo it, or (admins) ban the episode for good. Floats, so nothing moves. -->
+    <div id="skip-toast" class="toast" role="status" hidden>
+      <span id="skip-toast-text" class="grow"></span>
+      <button id="skip-undo" class="btn small">Undo</button>
+      <button id="skip-ban" class="btn small danger admin-only" title="Never pick this episode again, for everyone (e.g. it was pulled from streaming)">Ban</button>
+    </div>
   </section>
 
   <section id="shows-view" hidden>

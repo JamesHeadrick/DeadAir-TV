@@ -168,6 +168,13 @@ class Database:
                 (tmdb_id, value),
             )
 
+    def get_episode(self, tmdb_id: int, season: int, episode: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM episodes WHERE tmdb_id = ? AND season = ? AND episode = ?",
+                (tmdb_id, season, episode),
+            ).fetchone()
+
     def show_seasons(self, tmdb_ids: list[int]) -> dict[int, list[int]]:
         """Regular seasons (no specials) each show has episodes in."""
         if not tmdb_ids:

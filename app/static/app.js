@@ -50,6 +50,7 @@ function showView(name) {
   $("shows-btn").hidden = ["shows", "settings", "login", "credits"].includes(name) || !me;
   $("settings-btn").hidden = name === "settings" || name === "login" || !me;
   updateSaveBar();
+  if (name !== "pick") hideSkipToast();
 }
 
 function openCredits(e) {
@@ -451,16 +452,66 @@ async function toggleWatched() {
 
 async function skipEpisode() {
   if (!current) return;
+  const skipped = current;
+  let res;
   try {
-    await api("api/history", {
+    res = await api("api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...epRef(current), kind: "skipped" }),
+      body: JSON.stringify({ ...epRef(skipped), kind: "skipped" }),
     });
   } catch (e) {
     return showNotice($("pick-status"), `Couldn't save: ${e.message}`, true);
   }
-  pick("any");
+  await pick("any");
+  showSkipToast(skipped, res.id);
+}
+
+// --- after a Skip: Undo (a mis-tap) or Ban (admins: never pick it again) ------
+
+let skipToast = null; // { ep, entryId, timer }
+
+function showSkipToast(ep, entryId) {
+  hideSkipToast();
+  $("skip-toast-text").textContent = `Skipped ${ep.show_name} ${ep.code}`;
+  $("skip-undo").disabled = $("skip-ban").disabled = false;
+  $("skip-toast").hidden = false;
+  skipToast = { ep, entryId, timer: setTimeout(hideSkipToast, 10000) };
+}
+
+function hideSkipToast() {
+  if (skipToast) clearTimeout(skipToast.timer);
+  skipToast = null;
+  $("skip-toast").hidden = true;
+}
+
+async function undoSkip() {
+  if (!skipToast) return;
+  const { ep, entryId } = skipToast;
+  hideSkipToast();
+  try {
+    await api(`api/history/${entryId}`, { method: "DELETE" });
+  } catch (e) {
+    return showNotice($("pick-status"), `Couldn't undo: ${e.message}`, true);
+  }
+  render({ ...ep, history: null }); // back to the episode you skipped
+}
+
+async function banSkipped() {
+  if (!skipToast) return;
+  const { ep } = skipToast;
+  if (!confirm(`Never pick ${ep.show_name} ${ep.code} "${ep.title}" again, for everyone?\n\nYou can unban it in the show's settings on All shows.`)) return;
+  hideSkipToast();
+  try {
+    await api("api/ban", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(epRef(ep)),
+    });
+    showNotice($("pick-status"), `Banned ${ep.show_name} ${ep.code}. Unban it in the show's settings on All shows.`);
+  } catch (e) {
+    showNotice($("pick-status"), `Couldn't ban: ${e.message}`, true);
+  }
 }
 
 // --- all shows --------------------------------------------------------------
@@ -547,6 +598,8 @@ $("skip").addEventListener("click", skipEpisode);
 $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
 $("p-more").addEventListener("click", toggleOverview);
+$("skip-undo").addEventListener("click", undoSkip);
+$("skip-ban").addEventListener("click", banSkipped);
 $("shows-btn").addEventListener("click", () => loadShows());
 $("back").addEventListener("click", () => {
   if (history.state?.depth > 0) return history.back(); // handled by popstate below

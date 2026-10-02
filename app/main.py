@@ -35,7 +35,9 @@ from .config import (
     ShowConfig,
     content_version,
     dump_config,
+    episode_code,
     parse_config,
+    parse_episode_code,
     read_config_text,
     save_config,
 )
@@ -124,6 +126,7 @@ class ShowIn(BaseModel):
     title: str | None = None
     links: dict[str, str] = {}
     episode_order: str | None = None
+    never_pick: list[str] = []
 
 
 class ConfigIn(BaseModel):
@@ -482,6 +485,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         result = pick_episode(
             state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling],
             skip_seasons=[k for s in candidates for k in info[s.tmdb_id]["_skip_seasons"]],
+            banned=[k for s in candidates for k in _banned_keys(s)],
         )
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
@@ -519,8 +523,30 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         """Mark an episode watched or skipped; either puts it on cooldown (for you)."""
         if current_config().find_show(body.tmdb_id) is None:
             raise HTTPException(404, "unknown show")
-        state.db.add_history(user.id, body.tmdb_id, body.season, body.episode, body.kind)
-        return {"history": _history(user.id, body.tmdb_id, body.season, body.episode)}
+        entry_id = state.db.add_history(user.id, body.tmdb_id, body.season, body.episode, body.kind)
+        # The id lets the app undo this mark (e.g. a Skip tapped by mistake).
+        return {"id": entry_id, "history": _history(user.id, body.tmdb_id, body.season, body.episode)}
+
+    @app.post("/api/ban")
+    async def ban_episode(body: EpisodeRef, _: User = Depends(admin_user)):
+        """Never pick this episode again, for anyone (e.g. it was pulled from streaming).
+
+        Saved on the show in config.yaml as never_pick; unban it in the show's editor.
+        """
+        cfg = current_config()
+        show = cfg.find_show(body.tmdb_id)
+        if show is None:
+            raise HTTPException(404, "unknown show")
+        code = episode_code(body.season, body.episode)
+        if code not in show.never_pick:
+            banned = dataclasses.replace(show, never_pick=tuple(sorted({*show.never_pick, code})))
+            new_cfg = dataclasses.replace(cfg, shows=[banned if s is show else s for s in cfg.shows])
+            try:
+                save_config(state.settings.config_path, dump_config(new_cfg))
+            except OSError as e:
+                raise HTTPException(500, f"couldn't write {state.settings.config_path}: {e}")
+            current_config()
+        return {"ok": True, "never_pick": list(current_config().find_show(body.tmdb_id).never_pick)}
 
     @app.post("/api/history/unwatch")
     async def unwatch(body: EpisodeRef, user: User = Depends(current_user)):
@@ -585,6 +611,9 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "title": (row["name"] if row and row["name"] else None) or s.title,
                     "links": s.links,
                     "episode_order": s.episode_order,
+                    "never_pick": list(s.never_pick),
+                    # Labels for the editor's banned list, in the show's episode order.
+                    "never_pick_info": {code: _episode_label(row, code) for code in s.never_pick},
                     "poster_url": image_url(row["poster_path"], "w185") if row else None,
                     "watch": _watch_fallbacks(cfg, s, row),
                 }
@@ -757,6 +786,25 @@ def _random_posters(infos: list[dict]) -> list[str]:
     """Up to CHANNEL_POSTERS poster thumbnails, a different random few each time."""
     urls = [i["thumb_url"] for i in infos if i["thumb_url"]]
     return random.sample(urls, min(CHANNEL_POSTERS, len(urls)))
+
+
+def _banned_keys(show: ShowConfig) -> list[str]:
+    """A show's never_pick codes as episode keys ("tmdb_id:season:episode")."""
+    keys = []
+    for code in show.never_pick:
+        season, episode = parse_episode_code(code)  # validated when the config was parsed
+        keys.append(f"{show.tmdb_id}:{season}:{episode}")
+    return keys
+
+
+def _episode_label(row, code: str) -> dict:
+    """Display code and title for a stored S06E10 (TMDB numbering)."""
+    season, episode = parse_episode_code(code) or (0, 0)
+    title = None
+    if row is not None:
+        ep = state.db.get_episode(row["tmdb_id"], season, episode)
+        title = ep["title"] if ep else None
+    return {"code": _episode_code(row, season, episode), "title": title}
 
 
 def _episode_code(row, season: int, episode: int) -> str:

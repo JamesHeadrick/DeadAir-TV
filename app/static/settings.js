@@ -20,8 +20,8 @@ function stripped(d) {
     cooldown_days: d.cooldown_days,
     search_urls: d.search_urls,
     channels: d.channels,
-    shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links, episode_order }) =>
-      ({ tmdb_id, channels, weight, name, title, links, episode_order: episode_order || null })),
+    shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links, episode_order, never_pick }) =>
+      ({ tmdb_id, channels, weight, name, title, links, episode_order: episode_order || null, never_pick: never_pick || [] })),
   };
 }
 
@@ -501,6 +501,7 @@ function showEditor(show) {
 
   const links = openLinksEditor(show, rerender);
   const order = episodeOrderField(show);
+  const banned = bannedField(show, rerender);
 
   const remove = el("button", { className: "btn small danger", textContent: "Remove show" });
   remove.addEventListener("click", () => {
@@ -515,8 +516,26 @@ function showEditor(show) {
       el("div", {}, el("label", { textContent: "Weight (1 = normal)" }), weight),
       el("div", {}, el("label", { textContent: "Display name" }), name)),
     order,
+    banned,
     links,
     remove);
+}
+
+// Episodes banned from a pick card (Skip, then Ban), e.g. ones pulled from streaming.
+function bannedField(show, rerender) {
+  const codes = show.never_pick || [];
+  if (!codes.length) return null;
+  const info = show.never_pick_info || {};
+  const chips = codes.map((code) => {
+    const label = info[code] ? [info[code].code, info[code].title].filter(Boolean).join(" · ") : code;
+    const b = el("button", { className: "chip-btn plain", textContent: `${label} ✕`, title: "Unban: it can be picked again" });
+    b.addEventListener("click", () => { show.never_pick = codes.filter((c) => c !== code); rerender(); });
+    return b;
+  });
+  return el("div", {},
+    el("label", { textContent: "Never picked" }),
+    el("div", { className: "chips big" }, ...chips),
+    el("p", { className: "hint", textContent: "Banned from a pick card (Skip, then Ban). Tap one to unban it, then Save." }));
 }
 
 // Episode order: TMDB numbers episodes by original air date, which doesn't

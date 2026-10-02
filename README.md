@@ -21,7 +21,11 @@ To keep an episode out of rotation for a while, mark it:
   it again to undo. Nothing counts as watched until you tap this, so rolling
   an episode and never getting to it doesn't cost you anything.
 - **Skip**: "not this one." It goes on the same cooldown, and the app rerolls
-  straight away.
+  straight away. A bar then offers **Undo** (for a mis-tap) and, for admins,
+  **Ban**: never pick that episode again, for anyone. Use it for episodes that
+  have been pulled from streaming, which TMDB can't tell DeadAir about. Bans
+  are saved on the show in `config.yaml` (`never_pick: [S06E10]`), and the
+  show's editor on All shows lists them to unban.
 
 When an episode comes back up after its cooldown, the card mentions it
 (e.g. "You watched this 3 weeks ago"). Settings lists what you've marked
