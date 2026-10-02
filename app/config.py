@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,6 +62,9 @@ class ShowConfig:
     # A TMDB episode group id (e.g. a show's DVD order) to number episodes by.
     # Only the S01E02 labels change; episodes are still tracked by TMDB's numbers.
     episode_order: str | None = None
+    # Episodes never to pick, e.g. ones pulled from streaming: "S06E10" in
+    # TMDB's numbering. Set with Ban after a Skip; applies to everyone.
+    never_pick: tuple[str, ...] = ()
 
 
 @dataclass
@@ -89,6 +93,32 @@ class AppConfig:
 
     def find_show(self, tmdb_id: int) -> ShowConfig | None:
         return next((s for s in self.shows if s.tmdb_id == tmdb_id), None)
+
+
+_EPISODE_CODE = re.compile(r"^S(\d+)E(\d+)$", re.I)
+
+
+def episode_code(season: int, episode: int) -> str:
+    return f"S{season:02d}E{episode:02d}"
+
+
+def parse_episode_code(code: str) -> tuple[int, int] | None:
+    m = _EPISODE_CODE.match(str(code).strip())
+    return (int(m[1]), int(m[2])) if m else None
+
+
+def _episode_codes(value, where: str) -> tuple[str, ...]:
+    if value in (None, ""):
+        return ()
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: expected a list like [S06E10]")
+    out = []
+    for code in value:
+        parsed = parse_episode_code(code)
+        if parsed is None:
+            raise ConfigError(f"{where}: {code!r} isn't an episode code like S06E10")
+        out.append(episode_code(*parsed))
+    return tuple(sorted(set(out)))
 
 
 class ConfigError(ValueError):
@@ -150,6 +180,7 @@ def parse_config(data: object) -> AppConfig:
                 title=str(show["title"]) if show.get("title") else None,
                 links=_str_map(show.get("links"), f"{where} links"),
                 episode_order=str(show["episode_order"]).strip() or None if show.get("episode_order") else None,
+                never_pick=_episode_codes(show.get("never_pick"), f"{where} never_pick"),
             )
         )
 
@@ -219,6 +250,8 @@ def dump_config(cfg: AppConfig) -> str:
             d["links"] = dict(s.links)
         if s.episode_order:
             d["episode_order"] = s.episode_order
+        if s.never_pick:
+            d["never_pick"] = list(s.never_pick)
         shows.append(d)
     data: dict = {
         "services": list(cfg.services),

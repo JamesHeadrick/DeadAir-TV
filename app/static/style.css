@@ -398,7 +398,14 @@ main {
 .settings-show .head { display: flex; gap: 12px; align-items: center; background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; width: 100%; }
 .settings-show .head .grow { flex: 1; min-width: 0; }
 .settings-show .head { align-items: flex-start; }
-.settings-show .head .tag { flex: none; color: var(--accent); background: var(--surface-2); border-radius: 8px; padding: 4px 10px; font-size: .85rem; }
+.settings-show .row-top { display: flex; gap: 10px; align-items: flex-start; }
+.settings-show .row-top .head { flex: 1; min-width: 0; width: auto; }
+.show-item > .grow { flex: 1; min-width: 0; }
+.show-item .side { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.show-item .side .btn { min-height: 34px; padding: 4px 10px; font-size: .85rem; }
+.show-item .side .tag { color: var(--accent); }
+.show-item .roll .icon { width: 1.2em; height: 1.2em; margin-right: 5px; }
+.show-item .roll:disabled { opacity: .4; cursor: not-allowed; }
 .show-add { margin-bottom: 12px; }
 .show-add .pick-list:not(:empty) { margin-top: 8px; }
 .settings-show .editor { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
@@ -478,6 +485,17 @@ footer p { margin: 4px 0; }
 .recent-list .mark.watched { color: var(--accent); }
 .recent-list .mark.skipped { color: var(--muted); }
 .recent-list .btn { background: var(--surface); flex: none; }
+.toast {
+  /* Under the sticky header, over the episode image, clear of the buttons. */
+  position: fixed; left: 50%; top: 76px; transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px)); z-index: 20;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-radius: 14px;
+  background: var(--surface-2); box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+.toast .grow { flex: 1; min-width: 0; font-size: .9rem; }
+.toast .btn.small { min-height: 36px; flex: none; background: var(--surface); }
+.toast .btn.small.danger { background: var(--warn-bg); }
 .credit-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .credit-list li { display: flex; align-items: center; gap: 12px; }
 .credit-icon {

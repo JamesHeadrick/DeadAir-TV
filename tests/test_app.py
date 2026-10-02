@@ -897,6 +897,56 @@ def test_episode_order_in_config_and_api(client):
     assert groups[0] == {"id": "dvd1", "name": "DVD Order", "type": "DVD", "episode_count": 14}
 
 
+def test_ban_an_episode_for_everyone(client):
+    # Skip returns an id, so a mis-tap can be undone.
+    res = client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": 2, "kind": "skipped"}).json()
+    assert client.delete(f"/api/history/{res['id']}").json() == {"ok": True}
+
+    # Ban S01E02 of show 1: never picked again, even once everything else is on cooldown.
+    assert client.post("/api/ban", json={"tmdb_id": 1, "season": 1, "episode": 2}).json() == {
+        "ok": True, "never_pick": ["S01E02"]}
+    for ep in (1, 3):
+        client.post("/api/history", json={"tmdb_id": 1, "season": 1, "episode": ep, "kind": "watched"})
+    assert {client.get("/api/pick", params={"channel": "short"}).json()["episode"] for _ in range(20)} == {1, 3}
+
+    # Saved on the show in config.yaml; the editor gets labels for it.
+    assert "never_pick:\n  - S01E02" in main.state.config_text
+    cfg = client.get("/api/config").json()
+    show = cfg["shows"][0]
+    assert show["never_pick"] == ["S01E02"]
+    assert show["never_pick_info"] == {"S01E02": {"code": "S01E02", "title": "Ep 2"}}
+
+    # Bans apply to everyone, but only admins can ban.
+    client.post("/api/users", json={"username": "kid", "password": "kidpass123"})
+    kid = TestClient(client.app)
+    _login_as(kid, "kid", "kidpass123")
+    assert {kid.get("/api/pick", params={"channel": "short"}).json()["episode"] for _ in range(20)} == {1, 3}
+    assert kid.post("/api/ban", json={"tmdb_id": 1, "season": 1, "episode": 1}).status_code == 403
+
+    # Unban from the editor (a normal config save).
+    show["never_pick"] = []
+    assert client.put("/api/config", json=cfg).status_code == 200
+    assert 2 in {kid.get("/api/pick", params={"channel": "short"}).json()["episode"] for _ in range(40)}
+
+
+def test_never_pick_config_validation():
+    cfg = parse_config({"shows": [{"tmdb_id": 1, "channels": ["a"], "never_pick": ["s6e10", "S06E10", "S01E02"]}]})
+    assert cfg.shows[0].never_pick == ("S01E02", "S06E10")  # normalised, de-duplicated, sorted
+    with pytest.raises(ConfigError, match="isn't an episode code"):
+        parse_config({"shows": [{"tmdb_id": 1, "channels": ["a"], "never_pick": ["episode 10"]}]})
+
+
+def test_roll_one_show_from_all_shows(client):
+    # "Let's watch a random Show 1": every channel, that show only.
+    picks = [client.get("/api/pick", params={"channel": "*", "show": 1}).json() for _ in range(10)]
+    assert {p["tmdb_id"] for p in picks} == {1}
+    shows = {s["tmdb_id"]: s for s in client.get("/api/shows").json()["shows"]}
+    assert shows[1]["watchable"] is True and shows[2]["watchable"] is False  # show 2 is only on Hulu
+    r = client.get("/api/pick", params={"channel": "*", "show": 2})
+    assert r.status_code == 404 and r.json()["detail"] == "Show 2 isn't on your services right now"
+    assert client.get("/api/pick", params={"channel": "*", "show": 999}).json()["detail"] == "unknown show"
+
+
 def test_surprise_me_rolls_from_every_show(client):
     db = main.state.db
     db.set_providers(2, {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]})  # both watchable now

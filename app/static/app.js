@@ -50,6 +50,7 @@ function showView(name) {
   $("shows-btn").hidden = ["shows", "settings", "login", "credits"].includes(name) || !me;
   $("settings-btn").hidden = name === "settings" || name === "login" || !me;
   updateSaveBar();
+  if (name !== "pick") hideSkipToast();
 }
 
 function openCredits(e) {
@@ -227,7 +228,28 @@ function surpriseButton(all) {
   return btn;
 }
 
-function enterChannel(channel) {
+// Rolling one show only ("let's watch a random Frasier"), from All shows.
+let soloShow = null; // { id, name } while rolling just that show
+
+function rollShow(id, name) {
+  current = null;
+  enterChannel(ALL_CHANNELS, { id, name });
+}
+
+// A Roll button for a show's row on All shows.
+function rollButton(s, watchable) {
+  const btn = el("button", {
+    className: "btn small roll", disabled: !watchable,
+    title: watchable ? `Roll a random episode of ${s.name}` : `${s.name} isn't on your services right now`,
+    ariaLabel: `Roll a random episode of ${s.name}`,
+  });
+  btn.innerHTML = '<svg class="icon" aria-hidden="true" focusable="false"><use href="#i-dice"/></svg><span>Roll</span>';
+  btn.addEventListener("click", (e) => { e.stopPropagation(); rollShow(s.id, s.name); });
+  return btn;
+}
+
+function enterChannel(channel, solo = null) {
+  soloShow = solo;
   currentChannel = channel;
   skippedShows = new Set();
   seenEpisodes = [];
@@ -239,6 +261,7 @@ async function pick(mode = "any") {
   const params = new URLSearchParams({ channel: currentChannel });
   if (current && mode === "other-show") skippedShows.add(current.tmdb_id);
   if (current && mode === "same-show") params.set("show", current.tmdb_id);
+  if (soloShow) params.set("show", soloShow.id);
   skippedShows.forEach((id) => params.append("skip_show", id));
   seenEpisodes.forEach((k) => params.append("skip_ep", k));
 
@@ -263,8 +286,10 @@ async function pick(mode = "any") {
 function render(ep, error) {
   current = ep;
   renderChannelLabel(ep);
-  $("other-show").hidden = !ep || ep.other_shows === 0;
-  $("same-show").hidden = !ep;
+  // Rolling one show: Reroll already means "another episode", and there's no other show.
+  $("other-show").hidden = !ep || ep.other_shows === 0 || !!soloShow;
+  $("same-show").hidden = !ep || !!soloShow;
+  $("same-show").parentElement.hidden = $("other-show").hidden && $("same-show").hidden;
   $("watched").hidden = !ep;
   $("skip").hidden = !ep;
   renderHistory(ep);
@@ -358,9 +383,10 @@ function renderChannelLabel(ep) {
     .filter((c) => c !== currentChannel)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   const emoji = currentChannel === ALL_CHANNELS ? "🎲" : ep?.channel_emoji?.[currentChannel];
+  const title = soloShow ? `Just ${soloShow.name}` : channelTitle(currentChannel);
   $("p-channel").replaceChildren(
     emoji ? el("span", { className: "emoji", textContent: emoji, ariaHidden: "true" }) : "",
-    el("span", { textContent: channelTitle(currentChannel) }),
+    el("span", { textContent: title }),
     ...others.map((c) => {
       const link = el("button", {
         className: "other", textContent: c, title: `Roll on ${c} instead`,
@@ -426,16 +452,66 @@ async function toggleWatched() {
 
 async function skipEpisode() {
   if (!current) return;
+  const skipped = current;
+  let res;
   try {
-    await api("api/history", {
+    res = await api("api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...epRef(current), kind: "skipped" }),
+      body: JSON.stringify({ ...epRef(skipped), kind: "skipped" }),
     });
   } catch (e) {
     return showNotice($("pick-status"), `Couldn't save: ${e.message}`, true);
   }
-  pick("any");
+  await pick("any");
+  showSkipToast(skipped, res.id);
+}
+
+// --- after a Skip: Undo (a mis-tap) or Ban (admins: never pick it again) ------
+
+let skipToast = null; // { ep, entryId, timer }
+
+function showSkipToast(ep, entryId) {
+  hideSkipToast();
+  $("skip-toast-text").textContent = `Skipped ${ep.show_name} ${ep.code}`;
+  $("skip-undo").disabled = $("skip-ban").disabled = false;
+  $("skip-toast").hidden = false;
+  skipToast = { ep, entryId, timer: setTimeout(hideSkipToast, 10000) };
+}
+
+function hideSkipToast() {
+  if (skipToast) clearTimeout(skipToast.timer);
+  skipToast = null;
+  $("skip-toast").hidden = true;
+}
+
+async function undoSkip() {
+  if (!skipToast) return;
+  const { ep, entryId } = skipToast;
+  hideSkipToast();
+  try {
+    await api(`api/history/${entryId}`, { method: "DELETE" });
+  } catch (e) {
+    return showNotice($("pick-status"), `Couldn't undo: ${e.message}`, true);
+  }
+  render({ ...ep, history: null }); // back to the episode you skipped
+}
+
+async function banSkipped() {
+  if (!skipToast) return;
+  const { ep } = skipToast;
+  if (!confirm(`Never pick ${ep.show_name} ${ep.code} "${ep.title}" again, for everyone?\n\nYou can unban it in the show's settings on All shows.`)) return;
+  hideSkipToast();
+  try {
+    await api("api/ban", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(epRef(ep)),
+    });
+    showNotice($("pick-status"), `Banned ${ep.show_name} ${ep.code}. Unban it in the show's settings on All shows.`);
+  } catch (e) {
+    showNotice($("pick-status"), `Couldn't ban: ${e.message}`, true);
+  }
 }
 
 // --- all shows --------------------------------------------------------------
@@ -509,7 +585,8 @@ function seasonLines(groups) {
 function showItem(s) {
   return el("li", { className: "show-item" },
     s.poster_url ? el("img", { className: "poster", src: s.poster_url, alt: "" }) : el("div", { className: "poster" }),
-    el("div", {}, el("h3", { textContent: s.show_name }), ...accessBits(s.access, s.channels)),
+    el("div", { className: "grow" }, el("h3", { textContent: s.show_name }), ...accessBits(s.access, s.channels)),
+    el("div", { className: "side" }, rollButton({ id: s.tmdb_id, name: s.show_name }, s.watchable)),
   );
 }
 
@@ -521,6 +598,8 @@ $("skip").addEventListener("click", skipEpisode);
 $("other-show").addEventListener("click", () => pick("other-show"));
 $("same-show").addEventListener("click", () => pick("same-show"));
 $("p-more").addEventListener("click", toggleOverview);
+$("skip-undo").addEventListener("click", undoSkip);
+$("skip-ban").addEventListener("click", banSkipped);
 $("shows-btn").addEventListener("click", () => loadShows());
 $("back").addEventListener("click", () => {
   if (history.state?.depth > 0) return history.back(); // handled by popstate below
