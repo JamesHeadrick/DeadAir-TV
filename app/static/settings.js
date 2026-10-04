@@ -18,6 +18,7 @@ function stripped(d) {
     include_free: d.include_free,
     include_rent_buy: d.include_rent_buy,
     cooldown_days: d.cooldown_days,
+    balance: d.balance,
     search_urls: d.search_urls,
     channels: d.channels,
     shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links, episode_order, never_pick }) =>
@@ -109,6 +110,7 @@ function renderSettings() {
   $("include-free").checked = draft.include_free;
   $("include-rent-buy").checked = draft.include_rent_buy;
   $("cooldown-days").value = draft.cooldown_days;
+  document.querySelectorAll('input[name="balance"]').forEach((r) => { r.checked = r.value === draft.balance; });
   $("cooldown-text").textContent = "for the number of days below";
   renderShows();
   renderSearchUrls();
@@ -545,17 +547,19 @@ function bannedField(show, rerender) {
 const episodeGroups = new Map(); // tmdb_id -> Promise of that show's orders
 
 function episodeOrderField(show) {
-  const DEFAULT = () => el("option", { value: "", textContent: "TMDB's order (original air date)" });
+  const DEFAULT = () => el("option", { value: "", textContent: "TMDB's order: original air date" });
   const select = el("select", { className: "field", ariaLabel: `Episode order for ${showTitle(show)}` }, DEFAULT());
   if (show.episode_order) select.append(el("option", { value: show.episode_order, textContent: "Loading…", selected: true }));
   select.addEventListener("change", () => { show.episode_order = select.value || null; changed(); });
   const hint = el("p", { className: "hint", textContent: "Loading this show's episode orders from TMDB…" });
 
   if (!episodeGroups.has(show.tmdb_id)) {
-    episodeGroups.set(show.tmdb_id, api(`api/tmdb/episode_groups?tmdb_id=${show.tmdb_id}`).then((d) => d.groups));
+    episodeGroups.set(show.tmdb_id, api(`api/tmdb/episode_groups?tmdb_id=${show.tmdb_id}`));
   }
-  episodeGroups.get(show.tmdb_id).then((groups) => {
-    select.replaceChildren(DEFAULT(), ...groups.map((g) => el("option", {
+  episodeGroups.get(show.tmdb_id).then(({ groups, tmdb_count: count }) => {
+    const tmdbOrder = DEFAULT();
+    if (count) tmdbOrder.textContent += ` (${count} episodes)`;
+    select.replaceChildren(tmdbOrder, ...groups.map((g) => el("option", {
       value: g.id, textContent: `${g.type}: ${g.name} (${g.episode_count} episodes)`,
     })));
     if (show.episode_order && !groups.some((g) => g.id === show.episode_order)) {
@@ -821,6 +825,10 @@ $("provider-filter").addEventListener("keydown", (e) => {
 $("include-free").addEventListener("change", (e) => { draft.include_free = e.target.checked; changed(); });
 $("include-rent-buy").addEventListener("change", (e) => { draft.include_rent_buy = e.target.checked; changed(); });
 $("show-search").addEventListener("input", onSearchInput);
+document.querySelectorAll('input[name="balance"]').forEach((r) => r.addEventListener("change", () => {
+  draft.balance = r.value;
+  changed();
+}));
 $("cooldown-days").addEventListener("input", (e) => {
   const d = parseFloat(e.target.value);
   e.target.classList.toggle("invalid", !(d >= 0));

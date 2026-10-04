@@ -153,6 +153,14 @@
     </section>
 
     <section class="panel admin-only">
+      <h2>Long vs short shows</h2>
+      <p class="hint">How a channel's shows share the picks. Example: Stargate SG-1 (214 episodes) vs Firefly (14). A show's Weight multiplies its share.</p>
+      <label class="toggle"><input type="radio" name="balance" value="sqrt"> <span><b>Balanced</b>: long shows come up more, short ones aren't buried <small>(80 / 20)</small></span></label>
+      <label class="toggle"><input type="radio" name="balance" value="episodes"> <span><b>By episodes</b>: every episode equally likely <small>(94 / 6)</small></span></label>
+      <label class="toggle"><input type="radio" name="balance" value="shows"> <span><b>Equal shows</b>: every show equally likely <small>(50 / 50)</small></span></label>
+    </section>
+
+    <section class="panel admin-only">
       <h2>Channels</h2>
       <p class="hint">Channels come from the tags on your shows (edit those under All shows). Give one an emoji, or rename or delete it on every show at once.</p>
       <ul id="channel-list" class="channel-list"></ul>

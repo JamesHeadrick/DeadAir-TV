@@ -73,6 +73,8 @@ class AppConfig:
     include_free: bool = True
     include_rent_buy: bool = True
     cooldown_days: float = 14  # watched/skipped episodes sit out this long
+    # How shows of different lengths share a channel: see BALANCE_MODES.
+    balance: str = "sqrt"
     search_urls: dict[str, str] = field(default_factory=dict)
     # Optional per-channel settings, e.g. {"scifi": {"emoji": "🚀"}}. Channels
     # themselves come from show tags; this only decorates them.
@@ -94,6 +96,12 @@ class AppConfig:
     def find_show(self, tmdb_id: int) -> ShowConfig | None:
         return next((s for s in self.shows if s.tmdb_id == tmdb_id), None)
 
+
+# How a channel's shows share the picks, by episode count n (times the show's weight):
+#   episodes: n        - every episode equally likely; long shows dominate
+#   sqrt:     sqrt(n)  - long shows still come up more, short ones aren't buried
+#   shows:    1        - every show equally likely
+BALANCE_MODES = ("episodes", "sqrt", "shows")
 
 _EPISODE_CODE = re.compile(r"^S(\d+)E(\d+)$", re.I)
 
@@ -192,12 +200,16 @@ def parse_config(data: object) -> AppConfig:
         raise ConfigError("cooldown_days can't be negative")
 
     channel_meta = _parse_channel_meta(data.get("channels"))
+    balance = str(data.get("balance") or "sqrt").strip().lower()
+    if balance not in BALANCE_MODES:
+        raise ConfigError(f"balance: use one of {', '.join(BALANCE_MODES)}")
 
     return AppConfig(
         services=list(dict.fromkeys(str(s).strip() for s in services if str(s).strip())),
         include_free=bool(data.get("include_free", True)),
         include_rent_buy=bool(data.get("include_rent_buy", True)),
         cooldown_days=cooldown,
+        balance=balance,
         search_urls=_str_map(data.get("search_urls"), "search_urls"),
         channel_meta=channel_meta,
         shows=shows,
@@ -258,6 +270,7 @@ def dump_config(cfg: AppConfig) -> str:
         "include_free": cfg.include_free,
         "include_rent_buy": cfg.include_rent_buy,
         "cooldown_days": int(cfg.cooldown_days) if cfg.cooldown_days.is_integer() else cfg.cooldown_days,
+        "balance": cfg.balance,
     }
     if cfg.search_urls:
         data["search_urls"] = dict(cfg.search_urls)

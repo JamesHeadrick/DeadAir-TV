@@ -135,6 +135,7 @@ class ConfigIn(BaseModel):
     include_free: bool = True
     include_rent_buy: bool = True
     cooldown_days: float = 14
+    balance: str = "sqrt"
     search_urls: dict[str, str] = {}
     channels: dict[str, dict[str, str]] = {}  # per-channel extras, e.g. {"scifi": {"emoji": "🚀"}}
     shows: list[ShowIn]
@@ -486,6 +487,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling],
             skip_seasons=[k for s in candidates for k in info[s.tmdb_id]["_skip_seasons"]],
             banned=[k for s in candidates for k in _banned_keys(s)],
+            balance=cfg.balance,
         )
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
@@ -625,6 +627,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             "include_free": cfg.include_free,
             "include_rent_buy": cfg.include_rent_buy,
             "cooldown_days": cfg.cooldown_days,
+            "balance": cfg.balance,
             "search_urls": cfg.search_urls,
             "channels": cfg.channel_meta,
             # What "Open" uses for each of your services when search_urls has no entry.
@@ -670,9 +673,11 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         if state.tmdb is None:
             raise HTTPException(503, "TMDB_API_KEY not set")
         try:
-            return {"groups": await state.tmdb.list_episode_groups(tmdb_id)}
+            groups = await state.tmdb.list_episode_groups(tmdb_id)
         except httpx.HTTPError as e:
             raise HTTPException(502, f"TMDB episode orders failed: {e}")
+        # TMDB's own order, counted the same way as the groups (regular seasons).
+        return {"groups": groups, "tmdb_count": state.db.count_episodes(tmdb_id)}
 
     @app.get("/api/tmdb/providers")
     async def tmdb_providers(_: User = Depends(admin_user)):
