@@ -18,7 +18,6 @@ function stripped(d) {
     include_free: d.include_free,
     include_rent_buy: d.include_rent_buy,
     cooldown_days: d.cooldown_days,
-    balance: d.balance,
     search_urls: d.search_urls,
     channels: d.channels,
     shows: d.shows.map(({ tmdb_id, channels, weight, name, title, links, episode_order, never_pick }) =>
@@ -110,7 +109,6 @@ function renderSettings() {
   $("include-free").checked = draft.include_free;
   $("include-rent-buy").checked = draft.include_rent_buy;
   $("cooldown-days").value = draft.cooldown_days;
-  document.querySelectorAll('input[name="balance"]').forEach((r) => { r.checked = r.value === draft.balance; });
   $("cooldown-text").textContent = "for the number of days below";
   renderShows();
   renderSearchUrls();
@@ -259,13 +257,80 @@ function renderShows() {
 const EMOJI_SUGGESTIONS = ["📺", "🚀", "😂", "🎬", "👻", "🕵️", "🍿", "🧸", "🤠", "🏰", "🔪", "🌍", "🎭", "🐉", "❤️", "🧪", "🎵", "⚽"];
 let emojiOpen = null; // channel whose emoji picker is open
 
-function setChannelEmoji(name, emoji) {
+// Set (or clear, with "") one of a channel's extras: emoji, balance.
+function setChannelMeta(name, key, value) {
   draft.channels = { ...draft.channels };
-  if (emoji) draft.channels[name] = { ...(draft.channels[name] || {}), emoji };
+  const meta = { ...(draft.channels[name] || {}) };
+  if (value) meta[key] = value;
+  else delete meta[key];
+  if (Object.keys(meta).length) draft.channels[name] = meta;
   else delete draft.channels[name];
+}
+
+function setChannelEmoji(name, emoji) {
+  setChannelMeta(name, "emoji", emoji);
   emojiOpen = null;
   renderChannelSettings();
   changed();
+}
+
+// --- channel mix: how a channel's shows share its picks ------------------------
+
+const BALANCES = [
+  { value: "sqrt", name: "Balanced", what: "long shows come up more, short ones aren't buried" },
+  { value: "episodes", name: "By episode", what: "every episode equally likely" },
+  { value: "shows", name: "By show", what: "every show equally likely" },
+];
+const DEFAULT_BALANCE = "sqrt";
+let mixOpen = null; // channel whose mix editor is open
+
+const channelBalance = (name) => draft.channels?.[name]?.balance || DEFAULT_BALANCE;
+const balanceName = (value) => BALANCES.find((b) => b.value === value).name;
+
+// Each show's chance of being picked on this channel, roughly: by its pickable
+// episodes (before cooldowns) and weight, under the given balance.
+function channelMix(name, balance) {
+  const shows = draft.shows.filter((s) => s.channels.includes(name));
+  const share = (n) => (balance === "shows" ? 1 : balance === "episodes" ? n : Math.sqrt(n));
+  const rows = shows.map((s) => {
+    const n = s.pickable_episodes;
+    return { show: s, n, raw: n ? share(n) * s.weight : 0 };
+  });
+  const total = rows.reduce((t, r) => t + r.raw, 0);
+  rows.forEach((r) => { r.pct = total ? (100 * r.raw) / total : 0; });
+  return rows.sort((a, b) => b.pct - a.pct || listName(a.show).localeCompare(listName(b.show)));
+}
+
+const pct = (p) => (p > 0 && p < 1 ? "<1%" : `${Math.round(p)}%`);
+
+function mixEditor(name) {
+  const current = channelBalance(name);
+  // Each option quotes the same show, the channel's longest, so they compare directly.
+  const longest = channelMix(name, "episodes")[0]?.show;
+  const options = BALANCES.map((b) => {
+    const top = channelMix(name, b.value).find((r) => r.show === longest);
+    const radio = el("input", { type: "radio", name: `mix-${name}`, value: b.value, checked: b.value === current });
+    radio.addEventListener("change", () => {
+      setChannelMeta(name, "balance", b.value === DEFAULT_BALANCE ? "" : b.value);
+      renderChannelSettings();
+      changed();
+    });
+    return el("label", { className: "toggle" }, radio, el("span", {},
+      el("b", { textContent: b.name }), `: ${b.what}`,
+      top?.pct ? el("small", { textContent: ` (${pct(top.pct)} chance of ${listName(top.show)})` }) : null));
+  });
+  const rows = channelMix(name, current).map((r) => el("li", {},
+    el("span", { className: "grow", textContent: listName(r.show) }),
+    r.n === undefined
+      ? el("small", { textContent: "new: counted after saving" })
+      : r.n === 0
+        ? el("small", { textContent: "can't be picked right now" })
+        : el("span", { className: "bar" }, el("span", { style: `width:${r.pct.toFixed(1)}%` })),
+    el("b", { textContent: r.n ? pct(r.pct) : "–" })));
+  return el("div", { className: "mix" },
+    ...options,
+    el("p", { className: "hint", textContent: `With ${balanceName(current)}, each show's chance of coming up (roughly; before cooldowns, and a show's weight counts):` }),
+    el("ul", { className: "mix-list" }, ...rows));
 }
 
 function renameChannel(from) {
@@ -321,6 +386,12 @@ function renderChannelSettings() {
       emojiOpen = emojiOpen === name ? null : name;
       renderChannelSettings();
     });
+    const mix = el("button", { className: "btn small", textContent: "Mix", ariaExpanded: String(mixOpen === name),
+      title: "How this channel's shows share the picks" });
+    mix.addEventListener("click", () => {
+      mixOpen = mixOpen === name ? null : name;
+      renderChannelSettings();
+    });
     const rename = el("button", { className: "btn small", textContent: "Rename" });
     rename.addEventListener("click", () => renameChannel(name));
     const del = el("button", { className: "btn small danger", textContent: "Delete" });
@@ -330,9 +401,10 @@ function renderChannelSettings() {
         emojiBtn,
         el("span", { className: "grow" },
           el("span", { className: "cname", textContent: name, title: name }),
-          el("small", { textContent: `${count} show${count === 1 ? "" : "s"}` })),
-        rename, del));
+          el("small", { textContent: `${count} show${count === 1 ? "" : "s"} · ${balanceName(channelBalance(name))}` })),
+        mix, rename, del));
     if (emojiOpen === name) li.append(emojiPicker(name, emoji));
+    if (mixOpen === name) li.append(mixEditor(name));
     return li;
   }));
 }
@@ -825,10 +897,6 @@ $("provider-filter").addEventListener("keydown", (e) => {
 $("include-free").addEventListener("change", (e) => { draft.include_free = e.target.checked; changed(); });
 $("include-rent-buy").addEventListener("change", (e) => { draft.include_rent_buy = e.target.checked; changed(); });
 $("show-search").addEventListener("input", onSearchInput);
-document.querySelectorAll('input[name="balance"]').forEach((r) => r.addEventListener("change", () => {
-  draft.balance = r.value;
-  changed();
-}));
 $("cooldown-days").addEventListener("input", (e) => {
   const d = parseFloat(e.target.value);
   e.target.classList.toggle("invalid", !(d >= 0));

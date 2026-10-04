@@ -188,16 +188,15 @@ Viewers see the same list without the editing controls. Settings has the rest:
   in is the order watch options are shown in, except that services with a
   link that opens the show come before ones that can only search for it.
 - **Where to watch**: turn the free/with-ads and rent/buy fallbacks on or off.
-- **Long vs short shows**: how a channel's shows share the picks. The default,
-  *Balanced*, gives each show a share by the square root of its episode count:
-  Stargate SG-1 (214 episodes) vs Firefly (14) comes up about 80/20 rather
-  than 94/6, without short shows taking over. *By episodes* (every episode
-  equally likely) and *Equal shows* are the alternatives. A show's weight
-  multiplies its share.
 - **Channels**: every channel in use, with an optional emoji (pick from
   suggestions or type your own), plus **Rename** and **Delete**, which apply
   to every show tagged with that channel. Renaming onto an existing channel
-  merges the two.
+  merges the two. **Mix** sets how the channel's shows share the picks and
+  shows each show's actual chance. The default, *Balanced*, gives each show a
+  share by the square root of its episode count: Stargate SG-1 (214 episodes)
+  vs Firefly (14) gives about an 80% chance of Stargate, rather than 94% with
+  *By episode* (every episode equally likely) or 50% with *By show*. A show's
+  weight multiplies its share.
 - **Watched & skipped**: set the cooldown length, see and undo your recent
   marks, and clear the history.
 - **Search links**: add or override a service's search URL.

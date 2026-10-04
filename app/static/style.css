@@ -381,6 +381,16 @@ main {
 }
 .emoji-slot.empty { color: var(--muted); font-size: 1.1rem; }
 .emoji-slot[aria-expanded="true"] { outline: 2px solid var(--accent); }
+.mix { padding: 10px 4px 4px; display: flex; flex-direction: column; gap: 4px; }
+.mix .toggle small { color: var(--muted); }
+.mix .hint { margin: 8px 0 2px; }
+.mix-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: .85rem; }
+.mix-list li { display: flex; align-items: center; gap: 8px; }
+.mix-list .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mix-list small { color: var(--muted); }
+.mix-list .bar { flex: 0 0 34%; height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+.mix-list .bar > span { display: block; height: 100%; background: var(--accent); }
+.mix-list b { flex: 0 0 2.6em; text-align: right; font-weight: 600; }
 .emoji-picker { padding: 10px 4px 4px; display: flex; flex-direction: column; gap: 8px; }
 .emoji-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; }
 .emoji-choice { height: 40px; border: 0; border-radius: 8px; background: var(--bg); font-size: 1.3rem; cursor: pointer; }

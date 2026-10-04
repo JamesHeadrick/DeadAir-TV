@@ -73,8 +73,6 @@ class AppConfig:
     include_free: bool = True
     include_rent_buy: bool = True
     cooldown_days: float = 14  # watched/skipped episodes sit out this long
-    # How shows of different lengths share a channel: see BALANCE_MODES.
-    balance: str = "sqrt"
     search_urls: dict[str, str] = field(default_factory=dict)
     # Optional per-channel settings, e.g. {"scifi": {"emoji": "🚀"}}. Channels
     # themselves come from show tags; this only decorates them.
@@ -83,6 +81,10 @@ class AppConfig:
 
     def channel_emoji(self, name: str) -> str | None:
         return self.channel_meta.get(name, {}).get("emoji") or None
+
+    def channel_balance(self, name: str) -> str:
+        """How the channel's shows share its picks (see BALANCE_MODES)."""
+        return self.channel_meta.get(name, {}).get("balance") or DEFAULT_BALANCE
 
     @property
     def channels(self) -> dict[str, list[ShowConfig]]:
@@ -101,7 +103,9 @@ class AppConfig:
 #   episodes: n        - every episode equally likely; long shows dominate
 #   sqrt:     sqrt(n)  - long shows still come up more, short ones aren't buried
 #   shows:    1        - every show equally likely
+# Set per channel (channels: {scifi: {balance: shows}}); sqrt is the default.
 BALANCE_MODES = ("episodes", "sqrt", "shows")
+DEFAULT_BALANCE = "sqrt"
 
 _EPISODE_CODE = re.compile(r"^S(\d+)E(\d+)$", re.I)
 
@@ -200,16 +204,12 @@ def parse_config(data: object) -> AppConfig:
         raise ConfigError("cooldown_days can't be negative")
 
     channel_meta = _parse_channel_meta(data.get("channels"))
-    balance = str(data.get("balance") or "sqrt").strip().lower()
-    if balance not in BALANCE_MODES:
-        raise ConfigError(f"balance: use one of {', '.join(BALANCE_MODES)}")
 
     return AppConfig(
         services=list(dict.fromkeys(str(s).strip() for s in services if str(s).strip())),
         include_free=bool(data.get("include_free", True)),
         include_rent_buy=bool(data.get("include_rent_buy", True)),
         cooldown_days=cooldown,
-        balance=balance,
         search_urls=_str_map(data.get("search_urls"), "search_urls"),
         channel_meta=channel_meta,
         shows=shows,
@@ -223,7 +223,7 @@ def _parse_channel_meta(raw: object) -> dict[str, dict[str, str]]:
     if raw is None:
         return {}
     if not isinstance(raw, dict):
-        raise ConfigError("'channels' must be a mapping like  scifi: {emoji: 🚀}")
+        raise ConfigError("'channels' must be a mapping like  scifi: {emoji: 🚀, balance: shows}")
     out: dict[str, dict[str, str]] = {}
     for name, meta in raw.items():
         where = f"channels.{name}"
@@ -236,11 +236,19 @@ def _parse_channel_meta(raw: object) -> dict[str, dict[str, str]]:
             continue
         if not isinstance(meta, dict):
             raise ConfigError(f"{where}: must be a mapping, e.g. {{emoji: 🚀}}")
+        entry: dict[str, str] = {}
         emoji = str(meta.get("emoji") or "").strip()
         if len(emoji) > MAX_EMOJI_LEN:
             raise ConfigError(f"{where}.emoji: use a single emoji")
         if emoji:
-            out[str(name).strip()] = {"emoji": emoji}
+            entry["emoji"] = emoji
+        balance = str(meta.get("balance") or DEFAULT_BALANCE).strip().lower()
+        if balance not in BALANCE_MODES:
+            raise ConfigError(f"{where}.balance: use one of {', '.join(BALANCE_MODES)}")
+        if balance != DEFAULT_BALANCE:
+            entry["balance"] = balance
+        if entry:
+            out[str(name).strip()] = entry
     return out
 
 
@@ -270,7 +278,6 @@ def dump_config(cfg: AppConfig) -> str:
         "include_free": cfg.include_free,
         "include_rent_buy": cfg.include_rent_buy,
         "cooldown_days": int(cfg.cooldown_days) if cfg.cooldown_days.is_integer() else cfg.cooldown_days,
-        "balance": cfg.balance,
     }
     if cfg.search_urls:
         data["search_urls"] = dict(cfg.search_urls)

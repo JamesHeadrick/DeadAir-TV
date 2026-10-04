@@ -208,12 +208,32 @@ def test_pick_balance_modes_and_weights(tmp_path):
     assert len(eps) == 36 and max(eps.values()) < 160
 
 
-def test_balance_in_config():
-    assert parse_config({}).balance == "sqrt"
-    assert parse_config({"balance": "Shows"}).balance == "shows"
-    assert "balance: episodes" in dump_config(parse_config({"balance": "episodes"}))
-    with pytest.raises(ConfigError, match="balance"):
-        parse_config({"balance": "fair"})
+def test_balance_is_per_channel():
+    cfg = parse_config({"channels": {"scifi": {"balance": "Shows"}, "sitcom": {"emoji": "😂"}}})
+    assert cfg.channel_balance("scifi") == "shows"
+    assert cfg.channel_balance("sitcom") == "sqrt"  # the default
+    assert cfg.channel_balance("unknown") == "sqrt"
+    text = dump_config(cfg)
+    assert "balance: shows" in text and text.count("balance") == 1  # the default isn't written out
+    with pytest.raises(ConfigError, match="channels.scifi.balance"):
+        parse_config({"channels": {"scifi": {"balance": "fair"}}})
+
+
+def test_pick_uses_the_channels_balance(client, monkeypatch):
+    seen = []
+    real = main.pick_episode
+    monkeypatch.setattr(main, "pick_episode", lambda *a, **kw: seen.append(kw["balance"]) or real(*a, **kw))
+    cfg = client.get("/api/config").json()
+    cfg["channels"] = {"short": {"balance": "episodes"}}
+    assert client.put("/api/config", json=cfg).status_code == 200
+    client.get("/api/pick", params={"channel": "short"})
+    client.get("/api/pick", params={"channel": "sitcom"})
+    client.get("/api/pick", params={"channel": "*"})
+    assert seen == ["episodes", "sqrt", "sqrt"]
+
+    # The Settings preview gets each show's pickable episode count (0 when it can't be watched).
+    counts = {s["tmdb_id"]: s["pickable_episodes"] for s in client.get("/api/config").json()["shows"]}
+    assert counts == {1: 3, 2: 0}
 
 
 def test_pick_skips_specials_and_unaired(tmp_path):
@@ -907,7 +927,6 @@ def test_episode_order_in_config_and_api(client):
 
     cfg = client.get("/api/config").json()
     assert cfg["shows"][0]["episode_order"] is None
-    assert cfg["balance"] == "sqrt"
     cfg["shows"][0]["episode_order"] = "dvd1"
     assert client.put("/api/config", json=cfg).status_code == 200
     assert client.get("/api/config").json()["shows"][0]["episode_order"] == "dvd1"
