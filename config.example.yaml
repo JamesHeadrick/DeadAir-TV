@@ -21,16 +21,22 @@ include_rent_buy: true
 # search_urls:
 #   Peacock Premium: https://www.peacocktv.com/search?q={q}
 
-# Optional: an emoji per channel, shown on its button (Settings > Channels
-# can set these too).
+# Optional per-channel settings (Settings > Channels can set these too):
+#   emoji:   shown on the channel's button.
+#   balance: how the channel's shows share the picks, by episode count:
+#     sqrt     (default) long shows come up more, short ones aren't buried
+#              (214 vs 14 episodes: about 80% chance of the long one)
+#     episodes every episode equally likely (94%)
+#     shows    every show equally likely (50%)
+#   A show's weight multiplies its share.
 channels:
-  scifi: {emoji: 🚀}
+  scifi: {emoji: 🚀, balance: sqrt}
 
 # Each show once. tmdb_id is in the show's URL on themoviedb.org, e.g.
 # https://www.themoviedb.org/tv/1400-seinfeld -> 1400.
 #   channels: one or more tags; each tag becomes a channel button.
-#   weight:   optional, default 1. Multiplies the odds of each of this
-#             show's episodes (weight 2 = each episode twice as likely).
+#   weight:   optional, default 1. Multiplies the show's share of picks
+#             (weight 2 = twice as likely; see balance under channels).
 #   name:     optional display-name override.
 #   links:    optional links to the show on each service (Settings calls
 #             these Open links). They beat the default search link.

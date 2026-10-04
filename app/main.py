@@ -486,6 +486,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
             state.db, candidates, exclude_episodes=[*skip_ep[-500:], *cooling],
             skip_seasons=[k for s in candidates for k in info[s.tmdb_id]["_skip_seasons"]],
             banned=[k for s in candidates for k in _banned_keys(s)],
+            balance=cfg.channel_balance(channel),
         )
         if result is None:
             raise HTTPException(503, "no episodes cached yet for this channel - try again shortly")
@@ -599,6 +600,7 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
     async def get_config(_: User = Depends(admin_user)):
         cfg = current_config()
         rows = state.db.get_shows([s.tmdb_id for s in cfg.shows])
+        pickable = _pickable_counts(cfg.shows)
         shows = []
         for s in cfg.shows:
             row = rows.get(s.tmdb_id)
@@ -616,6 +618,9 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
                     "never_pick_info": {code: _episode_label(row, code) for code in s.never_pick},
                     "poster_url": image_url(row["poster_path"], "w185") if row else None,
                     "watch": _watch_fallbacks(cfg, s, row),
+                    # Episodes picking can choose from (ignoring cooldowns), for the
+                    # channel mix preview in Settings.
+                    "pickable_episodes": pickable.get(s.tmdb_id, 0),
                 }
             )
         return {
@@ -670,9 +675,11 @@ def create_app(settings: Settings | None = None, start_sync: bool = True) -> Fas
         if state.tmdb is None:
             raise HTTPException(503, "TMDB_API_KEY not set")
         try:
-            return {"groups": await state.tmdb.list_episode_groups(tmdb_id)}
+            groups = await state.tmdb.list_episode_groups(tmdb_id)
         except httpx.HTTPError as e:
             raise HTTPException(502, f"TMDB episode orders failed: {e}")
+        # TMDB's own order, counted the same way as the groups (regular seasons).
+        return {"groups": groups, "tmdb_count": state.db.count_episodes(tmdb_id)}
 
     @app.get("/api/tmdb/providers")
     async def tmdb_providers(_: User = Depends(admin_user)):
@@ -786,6 +793,18 @@ def _random_posters(infos: list[dict]) -> list[str]:
     """Up to CHANNEL_POSTERS poster thumbnails, a different random few each time."""
     urls = [i["thumb_url"] for i in infos if i["thumb_url"]]
     return random.sample(urls, min(CHANNEL_POSTERS, len(urls)))
+
+
+def _pickable_counts(shows: list[ShowConfig]) -> dict[int, int]:
+    """Aired episodes each watchable show could be picked from, before anyone's
+    cooldowns: skipped seasons and banned episodes left out."""
+    info = _show_infos(shows)
+    watchable = [s for s in shows if info[s.tmdb_id]["_watchable"]]
+    return state.db.pickable_episode_counts(
+        [s.tmdb_id for s in watchable], time.strftime("%Y-%m-%d"),
+        [k for s in watchable for k in _banned_keys(s)],
+        [k for s in watchable for k in info[s.tmdb_id]["_skip_seasons"]],
+    )
 
 
 def _banned_keys(show: ShowConfig) -> list[str]:

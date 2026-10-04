@@ -168,6 +168,13 @@ class Database:
                 (tmdb_id, value),
             )
 
+    def count_episodes(self, tmdb_id: int) -> int:
+        """Episodes in a show's regular seasons (no specials)."""
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM episodes WHERE tmdb_id = ? AND season > 0", (tmdb_id,)
+            ).fetchone()[0]
+
     def get_episode(self, tmdb_id: int, season: int, episode: int) -> sqlite3.Row | None:
         with self.connect() as conn:
             return conn.execute(
