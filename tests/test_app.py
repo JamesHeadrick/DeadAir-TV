@@ -182,19 +182,38 @@ def test_access_link_override_and_fallback():
 
 # --- picking -----------------------------------------------------------------
 
-def test_pick_is_uniform_across_episodes_and_respects_weights(tmp_path):
+def test_pick_balance_modes_and_weights(tmp_path):
     db = Database(tmp_path / "t.db")
-    db.replace_episodes(_show(1), _eps(1, 1, 30))
-    db.replace_episodes(_show(2), _eps(2, 1, 10))
+    db.replace_episodes(_show(1), _eps(1, 1, 36))  # a long show
+    db.replace_episodes(_show(2), _eps(2, 1, 4))   # a short one
     rng = random.Random(0)
-
     shows = [ShowConfig(1, ("c",)), ShowConfig(2, ("c",))]
-    c = Counter(pick_episode(db, shows, rng)[0].tmdb_id for _ in range(4000))
-    assert 0.70 < c[1] / 4000 < 0.80  # 30 of 40 episodes
 
-    shows = [ShowConfig(1, ("c",)), ShowConfig(2, ("c",), weight=3)]
+    def share_of_long(balance, shows=shows, n=4000):
+        c = Counter(pick_episode(db, shows, rng, balance=balance)[0].tmdb_id for _ in range(n))
+        return c[1] / n
+
+    assert 0.86 < share_of_long("episodes") < 0.94  # 36 of 40 episodes: 90%
+    assert 0.71 < share_of_long("sqrt") < 0.79      # sqrt 36 : sqrt 4 = 6 : 2, so 75%
+    assert 0.45 < share_of_long("shows") < 0.55     # 50 / 50
+    # The default is the square-root middle ground.
     c = Counter(pick_episode(db, shows, rng)[0].tmdb_id for _ in range(4000))
-    assert 0.45 < c[1] / 4000 < 0.55  # 30 vs 10*3
+    assert 0.71 < c[1] / 4000 < 0.79
+
+    # A show's weight multiplies its share: sqrt 36 = 6 vs sqrt 4 * 3 = 6.
+    weighted = [ShowConfig(1, ("c",)), ShowConfig(2, ("c",), weight=3)]
+    assert 0.45 < share_of_long("sqrt", weighted) < 0.55
+    # Within a show, every episode is equally likely.
+    eps = Counter(pick_episode(db, [ShowConfig(1, ("c",))], rng)[1]["episode"] for _ in range(3600))
+    assert len(eps) == 36 and max(eps.values()) < 160
+
+
+def test_balance_in_config():
+    assert parse_config({}).balance == "sqrt"
+    assert parse_config({"balance": "Shows"}).balance == "shows"
+    assert "balance: episodes" in dump_config(parse_config({"balance": "episodes"}))
+    with pytest.raises(ConfigError, match="balance"):
+        parse_config({"balance": "fair"})
 
 
 def test_pick_skips_specials_and_unaired(tmp_path):
@@ -888,13 +907,15 @@ def test_episode_order_in_config_and_api(client):
 
     cfg = client.get("/api/config").json()
     assert cfg["shows"][0]["episode_order"] is None
+    assert cfg["balance"] == "sqrt"
     cfg["shows"][0]["episode_order"] = "dvd1"
     assert client.put("/api/config", json=cfg).status_code == 200
     assert client.get("/api/config").json()["shows"][0]["episode_order"] == "dvd1"
 
     main.state.tmdb = TMDBClient("k", transport=_episode_group_tmdb())
-    groups = client.get("/api/tmdb/episode_groups", params={"tmdb_id": 1}).json()["groups"]
-    assert groups[0] == {"id": "dvd1", "name": "DVD Order", "type": "DVD", "episode_count": 14}
+    res = client.get("/api/tmdb/episode_groups", params={"tmdb_id": 1}).json()
+    assert res["groups"][0] == {"id": "dvd1", "name": "DVD Order", "type": "DVD", "episode_count": 14}
+    assert res["tmdb_count"] == 3  # TMDB's own order: the show's regular-season episodes (#10)
 
 
 def test_ban_an_episode_for_everyone(client):

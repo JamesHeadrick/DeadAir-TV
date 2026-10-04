@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import random
 
 from .config import ShowConfig
@@ -17,12 +18,14 @@ def pick_episode(
     exclude_episodes: list[str] = (),
     skip_seasons: list[str] = (),
     banned: list[str] = (),
+    balance: str = "sqrt",
 ) -> tuple[ShowConfig, dict] | None:
-    """Pick one aired episode across ``shows``.
+    """Pick one aired episode across ``shows``: a show, then one of its episodes.
 
-    Every episode starts with equal probability, so a show with 200 episodes
-    comes up ~10x as often as one with 20. A show's ``weight`` multiplies the
-    odds of each of its episodes (weight 2 = each episode twice as likely).
+    ``balance`` sets each show's share by its number of pickable episodes n:
+    "episodes" (n, so a 200-episode show comes up 10x as often as a 20-episode
+    one), "sqrt" (sqrt(n), about 3x) or "shows" (equal). A show's ``weight``
+    multiplies its share. Episodes within a show are equally likely.
 
     ``exclude_episodes`` ("tmdb_id:season:episode" keys, e.g. ones already
     shown) are avoided. If that rules out everything, they're allowed again
@@ -43,8 +46,17 @@ def pick_episode(
     if not candidates:
         return None
 
-    show, n = rng.choices(candidates, weights=[c * s.weight for s, c in candidates])[0]
+    show, n = rng.choices(candidates, weights=[_share(c, balance) * s.weight for s, c in candidates])[0]
     row = db.nth_pickable_episode(show.tmdb_id, rng.randrange(n), today, exclude, skip_seasons)
     if row is None:  # table changed between queries (refresh in progress)
         return None
     return show, dict(row)
+
+
+def _share(n: int, balance: str) -> float:
+    """A show's relative share of picks for n pickable episodes."""
+    if balance == "shows":
+        return 1.0
+    if balance == "episodes":
+        return float(n)
+    return math.sqrt(n)
